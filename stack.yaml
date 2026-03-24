@@ -1,0 +1,22 @@
+resolver: lts-24.2
+
+packages:
+  - .
+
+extra-deps: []
+
+# Override default flag values for local packages and extra-deps
+# flags: {}
+
+# Extra package databases containing global packages
+# extra-package-dbs: []
+
+# Control whether we use the GHC we find on the path
+# system-ghc: true
+
+# Require a specific version of Stack, using version ranges
+# require-stack-version: -any # Default
+
+# GHC options applied to all local packages
+ghc-options:
+  "$locals": -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wpartial-fields -Wredundant-constraints

@@ -1,0 +1,197 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.38.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           gitllm
+version:        0.1.0.0
+synopsis:       MCP server exposing granular git operations for LLM tooling
+description:    gitllm is a Model Context Protocol (MCP) server that exposes a comprehensive
+                suite of git operations as discrete, scoped tools. Designed for LLM agents
+                that need fine-grained, safe access to git repositories — covering everything
+                from basic status queries to advanced rebase, worktree, and submodule workflows.
+category:       Development, Git, AI
+homepage:       https://github.com/kylejones/gitllm#readme
+bug-reports:    https://github.com/kylejones/gitllm/issues
+author:         Kyle Jones
+maintainer:     kyle@example.com
+copyright:      2026 Kyle Jones
+license:        MIT
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+    PLAN.md
+
+source-repository head
+  type: git
+  location: https://github.com/kylejones/gitllm
+
+library
+  exposed-modules:
+      GitLLM.MCP.Server
+      GitLLM.MCP.Types
+      GitLLM.MCP.Protocol
+      GitLLM.MCP.Router
+      GitLLM.Git.Types
+      GitLLM.Git.Runner
+      GitLLM.Git.Tools.Helpers
+      GitLLM.Git.Tools.Status
+      GitLLM.Git.Tools.Log
+      GitLLM.Git.Tools.Diff
+      GitLLM.Git.Tools.Branch
+      GitLLM.Git.Tools.Commit
+      GitLLM.Git.Tools.Staging
+      GitLLM.Git.Tools.Remote
+      GitLLM.Git.Tools.Stash
+      GitLLM.Git.Tools.Tag
+      GitLLM.Git.Tools.Merge
+      GitLLM.Git.Tools.Rebase
+      GitLLM.Git.Tools.Cherry
+      GitLLM.Git.Tools.Worktree
+      GitLLM.Git.Tools.Submodule
+      GitLLM.Git.Tools.Config
+      GitLLM.Git.Tools.Blame
+      GitLLM.Git.Tools.Bisect
+      GitLLM.Git.Tools.Clean
+      GitLLM.Git.Tools.Reset
+      GitLLM.Git.Tools.Reflog
+      GitLLM.Git.Tools.Search
+      GitLLM.Git.Tools.Patch
+      GitLLM.Git.Tools.Archive
+      GitLLM.Git.Tools.Hooks
+      GitLLM.Git.Tools.Inspect
+  other-modules:
+      Paths_gitllm
+  hs-source-dirs:
+      src
+  build-depends:
+      aeson >=2.1
+    , async >=2.2
+    , base >=4.7 && <5
+    , bytestring >=0.11
+    , containers >=0.6
+    , directory >=1.3
+    , exceptions >=0.10
+    , filepath >=1.4
+    , mtl >=2.3
+    , network >=3.1
+    , optparse-applicative >=0.18
+    , process >=1.6
+    , scientific >=0.3
+    , stm >=2.5
+    , text >=2.0
+    , time >=1.12
+    , transformers >=0.6
+    , typed-process >=0.2
+    , unordered-containers >=0.2
+    , uuid >=1.3
+    , vector >=0.13
+  default-language: Haskell2010
+
+executable gitllm
+  main-is: Main.hs
+  other-modules:
+      Paths_gitllm
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson >=2.1
+    , async >=2.2
+    , base >=4.7 && <5
+    , bytestring >=0.11
+    , containers >=0.6
+    , directory >=1.3
+    , exceptions >=0.10
+    , filepath >=1.4
+    , gitllm
+    , mtl >=2.3
+    , network >=3.1
+    , optparse-applicative >=0.18
+    , process >=1.6
+    , scientific >=0.3
+    , stm >=2.5
+    , text >=2.0
+    , time >=1.12
+    , transformers >=0.6
+    , typed-process >=0.2
+    , unordered-containers >=0.2
+    , uuid >=1.3
+    , vector >=0.13
+  default-language: Haskell2010
+
+executable gitllm-install
+  main-is: Install.hs
+  other-modules:
+      Paths_gitllm
+  hs-source-dirs:
+      scripts
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson >=2.1
+    , async >=2.2
+    , base >=4.7 && <5
+    , bytestring >=0.11
+    , containers >=0.6
+    , directory >=1.3
+    , exceptions >=0.10
+    , filepath >=1.4
+    , gitllm
+    , mtl >=2.3
+    , network >=3.1
+    , optparse-applicative >=0.18
+    , process >=1.6
+    , scientific >=0.3
+    , stm >=2.5
+    , text >=2.0
+    , time >=1.12
+    , transformers >=0.6
+    , typed-process >=0.2
+    , unordered-containers >=0.2
+    , uuid >=1.3
+    , vector >=0.13
+  default-language: Haskell2010
+
+test-suite gitllm-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Git.ToolsIntegrationSpec
+      Git.TypesAndHelpersSpec
+      MCP.ProtocolSpec
+      MCP.RouterSpec
+      MCP.TypesSpec
+      TestHelpers
+      Paths_gitllm
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      QuickCheck >=2.14
+    , aeson
+    , async >=2.2
+    , base >=4.7 && <5
+    , bytestring
+    , containers
+    , directory
+    , exceptions >=0.10
+    , filepath
+    , gitllm
+    , hspec >=2.11
+    , mtl >=2.3
+    , network >=3.1
+    , optparse-applicative >=0.18
+    , process
+    , scientific >=0.3
+    , stm >=2.5
+    , temporary >=1.3
+    , text
+    , time >=1.12
+    , transformers >=0.6
+    , typed-process >=0.2
+    , unordered-containers >=0.2
+    , uuid >=1.3
+    , vector >=0.13
+  default-language: Haskell2010

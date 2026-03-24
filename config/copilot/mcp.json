@@ -1,0 +1,4 @@
+{
+  "command": "{{GITLLM_PATH}}",
+  "args": []
+}

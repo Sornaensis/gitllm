@@ -1,0 +1,120 @@
+name:                gitllm
+version:             0.1.0.0
+github:              "kylejones/gitllm"
+license:             MIT
+author:              "Kyle Jones"
+maintainer:          "kyle@example.com"
+copyright:           "2026 Kyle Jones"
+
+extra-source-files:
+  - README.md
+  - CHANGELOG.md
+
+synopsis:            MCP server exposing granular git operations for LLM tooling
+category:            Development, Git, AI
+description:         |
+  gitllm is a Model Context Protocol (MCP) server that exposes a comprehensive
+  suite of git operations as discrete, scoped tools. Designed for LLM agents
+  that need fine-grained, safe access to git repositories — covering everything
+  from basic status queries to advanced rebase, worktree, and submodule workflows.
+
+dependencies:
+  - base >= 4.7 && < 5
+  - aeson >= 2.1
+  - bytestring >= 0.11
+  - text >= 2.0
+  - containers >= 0.6
+  - directory >= 1.3
+  - filepath >= 1.4
+  - process >= 1.6
+  - optparse-applicative >= 0.18
+  - mtl >= 2.3
+  - transformers >= 0.6
+  - unordered-containers >= 0.2
+  - vector >= 0.13
+  - scientific >= 0.3
+  - time >= 1.12
+  - uuid >= 1.3
+  - network >= 3.1
+  - async >= 2.2
+  - stm >= 2.5
+  - exceptions >= 0.10
+  - typed-process >= 0.2
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - GitLLM.MCP.Server
+    - GitLLM.MCP.Types
+    - GitLLM.MCP.Protocol
+    - GitLLM.MCP.Router
+    - GitLLM.Git.Types
+    - GitLLM.Git.Runner
+    - GitLLM.Git.Tools.Helpers
+    - GitLLM.Git.Tools.Status
+    - GitLLM.Git.Tools.Log
+    - GitLLM.Git.Tools.Diff
+    - GitLLM.Git.Tools.Branch
+    - GitLLM.Git.Tools.Commit
+    - GitLLM.Git.Tools.Staging
+    - GitLLM.Git.Tools.Remote
+    - GitLLM.Git.Tools.Stash
+    - GitLLM.Git.Tools.Tag
+    - GitLLM.Git.Tools.Merge
+    - GitLLM.Git.Tools.Rebase
+    - GitLLM.Git.Tools.Cherry
+    - GitLLM.Git.Tools.Worktree
+    - GitLLM.Git.Tools.Submodule
+    - GitLLM.Git.Tools.Config
+    - GitLLM.Git.Tools.Blame
+    - GitLLM.Git.Tools.Bisect
+    - GitLLM.Git.Tools.Clean
+    - GitLLM.Git.Tools.Reset
+    - GitLLM.Git.Tools.Reflog
+    - GitLLM.Git.Tools.Search
+    - GitLLM.Git.Tools.Patch
+    - GitLLM.Git.Tools.Archive
+    - GitLLM.Git.Tools.Hooks
+    - GitLLM.Git.Tools.Inspect
+
+executables:
+  gitllm:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - gitllm
+
+  gitllm-install:
+    main:                Install.hs
+    source-dirs:         scripts
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - gitllm
+
+tests:
+  gitllm-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - gitllm
+      - hspec >= 2.11
+      - QuickCheck >= 2.14
+      - aeson
+      - bytestring
+      - text
+      - containers
+      - directory
+      - filepath
+      - process
+      - temporary >= 1.3

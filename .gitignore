@@ -1,0 +1,61 @@
+# Stack build artifacts
+.stack-work/
+stack.yaml.lock
+
+# Cabal build artifacts
+dist/
+dist-newstyle/
+cabal.project.local
+cabal.project.local~
+.cabal-sandbox/
+cabal.sandbox.config
+
+# GHC artifacts
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+*.chi
+*.chs.h
+*.hp
+*.eventlog
+*.prof
+*.aux
+*.tix
+
+# Haskell tool artifacts
+.hpc/
+.hsenv/
+.ghc.environment.*
+
+# Editor / IDE files
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+.dir-locals.el
+.projectile
+.envrc
+.vscode/
+.idea/
+*.iml
+tags
+TAGS
+codex.tags
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Project-specific
+.etc/
+
+# Build output
+bin/
+result/
+
+# Logs
+*.log
