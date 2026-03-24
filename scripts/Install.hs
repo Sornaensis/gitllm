@@ -31,10 +31,11 @@ import qualified Data.Text.IO as TIO
 import Options.Applicative
 import System.Directory
 import System.Environment (lookupEnv)
-import System.Exit (exitFailure)
+import System.Exit (ExitCode(..), exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.Info (os)
 import System.IO (hPutStrLn, stderr)
+import System.Process (readProcessWithExitCode)
 
 -- ---------------------------------------------------------------------------
 -- CLI
@@ -216,25 +217,51 @@ installBinary opts binDir = do
       success $ "Binary installed to " ++ destPath
 
 -- | Try to locate the stack-built binary.
+-- First asks Stack for its local-install-root, then falls back to common paths.
 findStackBinary :: IO (Maybe FilePath)
 findStackBinary = do
-  -- Stack installs to .stack-work/install/.../bin/
-  -- We can also check the Stack local bin path
-  home <- getHomeDirectory
-  let candidates = case currentPlatform of
-        Windows ->
-          [ home </> "AppData" </> "Roaming" </> "local" </> "bin" </> binaryName
-          , home </> ".local" </> "bin" </> binaryName
-          ]
-        _ ->
-          [ home </> ".local" </> "bin" </> binaryName
-          ]
-  findFirst candidates
+  -- Primary: ask Stack directly where it installs binaries
+  stackRoot <- getStackInstallRoot
+  case stackRoot of
+    Just root -> do
+      let candidate = root </> "bin" </> binaryName
+      exists <- doesFileExist candidate
+      if exists then pure (Just candidate) else searchFallbacks
+    Nothing -> searchFallbacks
   where
+    searchFallbacks = do
+      home <- getHomeDirectory
+      let candidates = case currentPlatform of
+            Windows ->
+              [ home </> ".local" </> "bin" </> binaryName
+              , home </> "AppData" </> "Local" </> "bin" </> binaryName
+              ]
+            _ ->
+              [ home </> ".local" </> "bin" </> binaryName
+              ]
+      findFirst candidates
+
     findFirst [] = pure Nothing
     findFirst (p:ps) = do
       exists <- doesFileExist p
       if exists then pure (Just p) else findFirst ps
+
+-- | Run @stack path --local-install-root@ to find where Stack builds to.
+getStackInstallRoot :: IO (Maybe FilePath)
+getStackInstallRoot = do
+  result <- tryReadProcess "stack" ["path", "--local-install-root"] ""
+  case result of
+    Just out -> let trimmed = T.unpack . T.strip . T.pack $ out
+                in if null trimmed then pure Nothing else pure (Just trimmed)
+    Nothing  -> pure Nothing
+
+-- | Safely run a process and capture stdout. Returns Nothing on failure.
+tryReadProcess :: FilePath -> [String] -> String -> IO (Maybe String)
+tryReadProcess cmd args input = do
+  (exitCode, out, _err) <- readProcessWithExitCode cmd args input
+  pure $ case exitCode of
+    ExitSuccess -> Just out
+    _           -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- MCP template reading
