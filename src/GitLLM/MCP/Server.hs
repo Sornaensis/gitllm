@@ -13,7 +13,9 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory (getCurrentDirectory)
+import System.Exit (ExitCode(..))
 import System.IO (hFlush, hSetBuffering, hSetEncoding, hIsEOF, stdin, stdout, BufferMode(..), utf8)
+import System.Process (readProcessWithExitCode)
 
 import GitLLM.MCP.Types
 import GitLLM.MCP.Protocol
@@ -23,7 +25,9 @@ import GitLLM.Git.Types (GitContext(..))
 -- | Run the MCP server on the configured transport.
 runServer :: ServerConfig -> IO ()
 runServer cfg = do
-  repoPath <- maybe getCurrentDirectory pure (cfgRepoPath cfg)
+  repoPath <- case cfgRepoPath cfg of
+    Just p  -> pure p
+    Nothing -> detectRepoRoot
   let ctx = GitContext { gitRepoPath = repoPath, gitTimeout = cfgTimeout cfg }
   case cfgTransport cfg of
     "stdio" -> runStdio cfg ctx
@@ -108,3 +112,15 @@ handleRequest cfg ctx req = case rpcReqMethod req of
 
   other ->
     pure $ methodNotFound (rpcReqId req) other
+
+-- | Detect the git repository root from the current directory.
+-- Runs @git rev-parse --show-toplevel@ and falls back to cwd on failure.
+detectRepoRoot :: IO FilePath
+detectRepoRoot = do
+  cwd <- getCurrentDirectory
+  (exitCode, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--show-toplevel"] ""
+  pure $ case exitCode of
+    ExitSuccess ->
+      let trimmed = filter (/= '\n') out
+      in if null trimmed then cwd else trimmed
+    _ -> cwd
