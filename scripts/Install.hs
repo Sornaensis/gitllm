@@ -19,6 +19,7 @@ module Main (main) where
 
 import Control.Monad (when, unless)
 import Data.Aeson (Value(..), object, (.=), encode, eitherDecodeStrict)
+import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -50,6 +51,7 @@ data InstallOpts = InstallOpts
   , optNoCopilotMcp  :: Bool
   , optNoCopilotAgent :: Bool
   , optConfigDir     :: FilePath
+  , optUninstall     :: Bool
   }
 
 installOptsParser :: Parser InstallOpts
@@ -94,6 +96,10 @@ installOptsParser = InstallOpts
      <> value "config"
      <> showDefault
      <> help "Path to the config definitions directory"
+      )
+  <*> switch
+      ( long "uninstall"
+     <> help "Remove gitllm binary, MCP configs, and agent files"
       )
 
 -- ---------------------------------------------------------------------------
@@ -162,18 +168,18 @@ claudeAgentDir = do
   home <- getHomeDirectory
   pure (home </> ".claude" </> "commands")
 
--- | VS Code user-level agents directory.
-vscodeAgentsDir :: IO FilePath
-vscodeAgentsDir = case currentPlatform of
+-- | VS Code user-level prompts directory.
+vscodePromptsDir :: IO FilePath
+vscodePromptsDir = case currentPlatform of
   Windows -> do
     appData <- getEnv' "APPDATA"
-    pure (appData </> "Code" </> "User" </> "agents")
+    pure (appData </> "Code" </> "User" </> "prompts")
   MacOS -> do
     home <- getHomeDirectory
-    pure (home </> "Library" </> "Application Support" </> "Code" </> "User" </> "agents")
+    pure (home </> "Library" </> "Application Support" </> "Code" </> "User" </> "prompts")
   _ -> do
     home <- getHomeDirectory
-    pure (home </> ".config" </> "Code" </> "User" </> "agents")
+    pure (home </> ".config" </> "Code" </> "User" </> "prompts")
 
 -- | Get an environment variable with fallback to home directory.
 getEnv' :: String -> IO FilePath
@@ -311,9 +317,14 @@ installClaudeMcp opts binaryAbsPath = do
     config <- if existing
       then do
         contents <- BS.readFile configPath
-        case eitherDecodeStrict contents of
-          Right val -> pure val
-          Left _    -> pure (object [])
+        if BS.null contents
+          then pure (object [])
+          else case eitherDecodeStrict contents of
+            Right val -> pure val
+            Left _    -> do
+              hPutStrLn stderr "WARNING: Could not parse existing Claude config"
+              hPutStrLn stderr "         Existing content will be replaced."
+              pure (object [])
       else pure (object [])
 
     let updated = mergeClaudeConfig config entry
@@ -353,20 +364,18 @@ installCopilotMcp opts binaryAbsPath = do
     config <- if existing
       then do
         contents <- BS.readFile configPath
-        case eitherDecodeStrict contents of
-          Right val -> pure val
-          Left _    -> do
-            hPutStrLn stderr "WARNING: Could not parse existing mcp.json"
-            hPutStrLn stderr "         Skipping Copilot config. Add manually to mcp.json:"
-            hPutStrLn stderr $ "         { \"servers\": { \"gitllm\": { \"command\": \"" ++ binaryAbsPath ++ "\" } } }"
-            pure Null
+        if BS.null contents
+          then pure (object [])
+          else case eitherDecodeStrict contents of
+            Right val -> pure val
+            Left _    -> do
+              hPutStrLn stderr "WARNING: Could not parse existing mcp.json"
+              hPutStrLn stderr "         Existing content will be replaced."
+              pure (object [])
       else pure (object [])
 
-    case config of
-      Null -> pure ()
-      _    -> do
-        let updated = mergeCopilotConfig config entry
-        BL.writeFile configPath (encode updated)
+    let updated = mergeCopilotConfig config entry
+    BL.writeFile configPath (encode updated)
 
   success "GitHub Copilot MCP configured"
 
@@ -425,7 +434,7 @@ installClaudeAgent opts = do
 
 installCopilotAgent :: InstallOpts -> IO ()
 installCopilotAgent opts = do
-  destDir <- vscodeAgentsDir
+  destDir <- vscodePromptsDir
   let srcDir = optConfigDir opts </> "copilot"
       agentFiles = [ "gitllm.agent.md"
                      , "gitllm-status.agent.md"
@@ -457,6 +466,106 @@ installCopilotAgent opts = do
   success "Copilot agent definitions installed"
 
 -- ---------------------------------------------------------------------------
+-- Uninstall
+-- ---------------------------------------------------------------------------
+
+-- | Remove the gitllm binary from the install directory.
+uninstallBinary :: InstallOpts -> FilePath -> IO ()
+uninstallBinary opts binDir = do
+  let destPath = binDir </> binaryName
+  exists <- doesFileExist destPath
+  if exists
+    then do
+      logInfo $ "Removing binary: " ++ destPath
+      unless (optDryRun opts) $ removeFile destPath
+      success "Binary removed"
+    else logInfo $ "Binary not found at " ++ destPath ++ " (skipping)"
+
+-- | Remove the gitllm entry from Claude's MCP config.
+uninstallClaudeMcp :: InstallOpts -> IO ()
+uninstallClaudeMcp opts = do
+  configPath <- claudeConfigPath
+  logInfo $ "Removing gitllm from Claude MCP config: " ++ configPath
+  removeJsonKey opts configPath "mcpServers" "gitllm"
+  success "Claude MCP entry removed"
+
+-- | Remove the gitllm entry from VS Code's mcp.json.
+uninstallCopilotMcp :: InstallOpts -> IO ()
+uninstallCopilotMcp opts = do
+  configPath <- vscodeMcpPath
+  logInfo $ "Removing gitllm from Copilot MCP config: " ++ configPath
+  removeJsonKey opts configPath "servers" "gitllm"
+  success "Copilot MCP entry removed"
+
+-- | Remove a key from a nested JSON object.
+-- Looks for @{ parentKey: { childKey: ... } }@ and deletes @childKey@.
+removeJsonKey :: InstallOpts -> FilePath -> Key -> Key -> IO ()
+removeJsonKey opts configPath parentKey childKey = do
+  exists <- doesFileExist configPath
+  when exists $ unless (optDryRun opts) $ do
+    contents <- BS.readFile configPath
+    unless (BS.null contents) $
+      case eitherDecodeStrict contents of
+        Right (Object top) ->
+          case KM.lookup parentKey top of
+            Just (Object nested) -> do
+              let nested' = KM.delete childKey nested
+                  top' = KM.insert parentKey (Object nested') top
+              BL.writeFile configPath (encode (Object top'))
+            _ -> pure ()
+        _ -> pure ()
+
+-- | Remove Claude agent instruction files.
+uninstallClaudeAgent :: InstallOpts -> IO ()
+uninstallClaudeAgent opts = do
+  destDir <- claudeAgentDir
+  let files = [ "gitllm.md"
+              , "gitllm-status.md"
+              , "gitllm-history.md"
+              , "gitllm-search.md"
+              , "gitllm-branch.md"
+              , "gitllm-staging.md"
+              , "gitllm-merge.md"
+              , "gitllm-remote.md"
+              , "gitllm-stash.md"
+              , "gitllm-maintenance.md"
+              , "gitllm-ops.md"
+              ]
+  logInfo "Removing Claude agent instructions:"
+  mapM_ (removeIfExists opts destDir) files
+  success "Claude agent instructions removed"
+
+-- | Remove Copilot prompt files.
+uninstallCopilotAgent :: InstallOpts -> IO ()
+uninstallCopilotAgent opts = do
+  destDir <- vscodePromptsDir
+  let files = [ "gitllm.agent.md"
+              , "gitllm-status.agent.md"
+              , "gitllm-history.agent.md"
+              , "gitllm-search.agent.md"
+              , "gitllm-branch.agent.md"
+              , "gitllm-staging.agent.md"
+              , "gitllm-merge.agent.md"
+              , "gitllm-remote.agent.md"
+              , "gitllm-stash.agent.md"
+              , "gitllm-maintenance.agent.md"
+              ]
+  logInfo "Removing Copilot prompt files:"
+  mapM_ (removeIfExists opts destDir) files
+  success "Copilot prompt files removed"
+
+-- | Remove a file if it exists, respecting dry-run.
+removeIfExists :: InstallOpts -> FilePath -> FilePath -> IO ()
+removeIfExists opts dir fileName = do
+  let path = dir </> fileName
+  exists <- doesFileExist path
+  if exists
+    then do
+      logInfo $ "  removing: " ++ path
+      unless (optDryRun opts) $ removeFile path
+    else logInfo $ "  not found: " ++ path ++ " (skipping)"
+
+-- ---------------------------------------------------------------------------
 -- Main
 -- ---------------------------------------------------------------------------
 
@@ -477,39 +586,68 @@ main = do
   logInfo $ "Config dir:  " ++ optConfigDir opts
   when (optDryRun opts) $
     logInfo "Mode:        DRY RUN (no changes will be made)"
+  when (optUninstall opts) $
+    logInfo "Mode:        UNINSTALL"
   putStrLn ""
 
-  -- Step 1: Install binary
-  unless (optConfigOnly opts) $
-    installBinary opts actualBinDir
+  if optUninstall opts
+    then do
+      -- Uninstall: remove everything that was installed
+      unless (optConfigOnly opts) $
+        uninstallBinary opts actualBinDir
 
-  -- Step 2: Configure Claude Code MCP
-  unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
-    putStrLn ""
-    installClaudeMcp opts binaryAbsPath
+      unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
+        putStrLn ""
+        uninstallClaudeMcp opts
 
-  -- Step 3: Configure GitHub Copilot MCP
-  unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
-    putStrLn ""
-    installCopilotMcp opts binaryAbsPath
+      unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
+        putStrLn ""
+        uninstallCopilotMcp opts
 
-  -- Step 4: Install Claude agent instructions
-  unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
-    putStrLn ""
-    installClaudeAgent opts
+      unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
+        putStrLn ""
+        uninstallClaudeAgent opts
 
-  -- Step 5: Install Copilot agent definition
-  unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
-    putStrLn ""
-    installCopilotAgent opts
+      unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
+        putStrLn ""
+        uninstallCopilotAgent opts
 
-  putStrLn ""
-  success "Installation complete!"
-  logInfo ""
-  logInfo "Next steps:"
-  logInfo "  1. Restart Claude Code / VS Code to pick up the new MCP server"
-  logInfo "  2. Verify by asking your AI assistant to run 'git_status'"
-  logInfo ""
+      putStrLn ""
+      success "Uninstall complete!"
+
+    else do
+      -- Install: normal install path
+      -- Step 1: Install binary
+      unless (optConfigOnly opts) $
+        installBinary opts actualBinDir
+
+      -- Step 2: Configure Claude Code MCP
+      unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
+        putStrLn ""
+        installClaudeMcp opts binaryAbsPath
+
+      -- Step 3: Configure GitHub Copilot MCP
+      unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
+        putStrLn ""
+        installCopilotMcp opts binaryAbsPath
+
+      -- Step 4: Install Claude agent instructions
+      unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
+        putStrLn ""
+        installClaudeAgent opts
+
+      -- Step 5: Install Copilot agent definition
+      unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
+        putStrLn ""
+        installCopilotAgent opts
+
+      putStrLn ""
+      success "Installation complete!"
+      logInfo ""
+      logInfo "Next steps:"
+      logInfo "  1. Restart Claude Code / VS Code to pick up the new MCP server"
+      logInfo "  2. Verify by asking your AI assistant to run 'git_status'"
+      logInfo ""
 
   where
     optsInfo = info (installOptsParser <**> helper)
