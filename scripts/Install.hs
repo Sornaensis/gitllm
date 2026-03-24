@@ -19,7 +19,6 @@ module Main (main) where
 
 import Control.Monad (when, unless)
 import Data.Aeson (Value(..), object, (.=), encode, eitherDecodeStrict)
-import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -144,18 +143,18 @@ claudeConfigPath = case currentPlatform of
     home <- getHomeDirectory
     pure (home </> ".claude" </> "claude_desktop_config.json")
 
--- | VS Code settings.json location (user-level).
-vscodeSettingsPath :: IO FilePath
-vscodeSettingsPath = case currentPlatform of
+-- | VS Code user-level mcp.json location.
+vscodeMcpPath :: IO FilePath
+vscodeMcpPath = case currentPlatform of
   Windows -> do
     appData <- getEnv' "APPDATA"
-    pure (appData </> "Code" </> "User" </> "settings.json")
+    pure (appData </> "Code" </> "User" </> "mcp.json")
   MacOS -> do
     home <- getHomeDirectory
-    pure (home </> "Library" </> "Application Support" </> "Code" </> "User" </> "settings.json")
+    pure (home </> "Library" </> "Application Support" </> "Code" </> "User" </> "mcp.json")
   _ -> do
     home <- getHomeDirectory
-    pure (home </> ".config" </> "Code" </> "User" </> "settings.json")
+    pure (home </> ".config" </> "Code" </> "User" </> "mcp.json")
 
 -- | Claude agent instructions install directory.
 claudeAgentDir :: IO FilePath
@@ -339,7 +338,7 @@ mergeClaudeConfig _ entry = mergeClaudeConfig (object []) entry
 
 installCopilotMcp :: InstallOpts -> FilePath -> IO ()
 installCopilotMcp opts binaryAbsPath = do
-  configPath <- vscodeSettingsPath
+  configPath <- vscodeMcpPath
   let templatePath = optConfigDir opts </> "copilot" </> "mcp.json"
 
   logInfo $ "Configuring GitHub Copilot MCP:"
@@ -357,10 +356,9 @@ installCopilotMcp opts binaryAbsPath = do
         case eitherDecodeStrict contents of
           Right val -> pure val
           Left _    -> do
-            -- Don't overwrite a file we can't parse — it may have comments
-            hPutStrLn stderr "WARNING: Could not parse existing settings.json"
-            hPutStrLn stderr "         Skipping Copilot config. Add manually:"
-            hPutStrLn stderr $ "         \"github.copilot.chat.mcpServers\": { \"gitllm\": { \"command\": \"" ++ binaryAbsPath ++ "\" } }"
+            hPutStrLn stderr "WARNING: Could not parse existing mcp.json"
+            hPutStrLn stderr "         Skipping Copilot config. Add manually to mcp.json:"
+            hPutStrLn stderr $ "         { \"servers\": { \"gitllm\": { \"command\": \"" ++ binaryAbsPath ++ "\" } } }"
             pure Null
       else pure (object [])
 
@@ -372,15 +370,15 @@ installCopilotMcp opts binaryAbsPath = do
 
   success "GitHub Copilot MCP configured"
 
--- | Merge a gitllm entry into VS Code settings for Copilot.
+-- | Merge a gitllm entry into VS Code mcp.json.
+-- mcp.json uses { "servers": { "name": { "command": ..., "args": [...] } } }
 mergeCopilotConfig :: Value -> Value -> Value
 mergeCopilotConfig (Object top) entry =
-  let key = "github.copilot.chat.mcpServers"
-      servers = case KM.lookup (Key.fromText key) top of
+  let servers = case KM.lookup "servers" top of
         Just (Object s) -> s
         _               -> KM.empty
       servers' = KM.insert "gitllm" entry servers
-      top' = KM.insert (Key.fromText key) (Object servers') top
+      top' = KM.insert "servers" (Object servers') top
   in Object top'
 mergeCopilotConfig _ entry = mergeCopilotConfig (object []) entry
 
