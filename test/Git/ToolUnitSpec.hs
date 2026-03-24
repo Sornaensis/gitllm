@@ -44,6 +44,7 @@ import qualified GitLLM.Git.Tools.Patch     as Patch
 import qualified GitLLM.Git.Tools.Archive   as Archive
 import qualified GitLLM.Git.Tools.Hooks     as Hooks
 import qualified GitLLM.Git.Tools.Inspect   as Inspect
+import qualified GitLLM.Git.Tools.Composite as Composite
 
 import GitLLM.Git.Tools.Status (parseStatusPorcelain)
 import GitLLM.Git.Tools.Log (parseLogEntries)
@@ -53,6 +54,7 @@ import GitLLM.Git.Tools.Stash (parseStashLines)
 import GitLLM.Git.Tools.Diff (parseNumstat)
 import GitLLM.Git.Tools.Config (parseConfigLines)
 import GitLLM.Git.Tools.Remote (parseRemoteLines)
+import GitLLM.Git.Tools.Composite (extractCommitType, parseChangelogEntries, filterBranches)
 
 spec :: Spec
 spec = do
@@ -66,6 +68,7 @@ spec = do
   diffStatParsingSpec
   configParsingSpec
   remoteParsingSpec
+  compositeParsingSpec
   wantsJsonSpec
   outputParamSpec
 
@@ -81,7 +84,7 @@ toolDefinitionSpec = describe "Tool definitions" $ do
         , Worktree.tools, Submodule.tools, Config.tools, Blame.tools
         , Bisect.tools, Clean.tools, Reset.tools, Reflog.tools
         , Search.tools, Patch.tools, Archive.tools, Hooks.tools
-        , Inspect.tools
+        , Inspect.tools, Composite.tools
         ]
 
   describe "Status" $ toolModuleTests Status.tools 2
@@ -109,6 +112,7 @@ toolDefinitionSpec = describe "Tool definitions" $ do
   describe "Archive" $ toolModuleTests Archive.tools 1
   describe "Hooks" $ toolModuleTests Hooks.tools 1
   describe "Inspect" $ toolModuleTests Inspect.tools 5
+  describe "Composite" $ toolModuleTests Composite.tools 4
 
   it "all tool names are globally unique" $ do
     let names = map toolName allTools
@@ -515,6 +519,68 @@ remoteParsingSpec = describe "Remote JSON parsing" $ do
 
   it "handles empty output" $ do
     parseRemoteLines "" `shouldBe` []
+
+-- =========================================================================
+-- Composite parsing
+-- =========================================================================
+compositeParsingSpec :: Spec
+compositeParsingSpec = describe "Composite parsing" $ do
+  describe "extractCommitType" $ do
+    it "extracts conventional commit types" $ do
+      extractCommitType "feat: add login" `shouldBe` "feat"
+      extractCommitType "fix: resolve crash" `shouldBe` "fix"
+      extractCommitType "docs: update README" `shouldBe` "docs"
+      extractCommitType "chore: bump deps" `shouldBe` "chore"
+
+    it "handles scoped conventional commits" $ do
+      extractCommitType "feat(auth): add OAuth" `shouldBe` "feat"
+      extractCommitType "fix(core): null check" `shouldBe` "fix"
+
+    it "returns 'other' for non-conventional commits" $ do
+      extractCommitType "initial commit" `shouldBe` "other"
+      extractCommitType "merge branch master" `shouldBe` "other"
+
+    it "returns 'other' for empty subject" $ do
+      extractCommitType "" `shouldBe` "other"
+
+  describe "parseChangelogEntries" $ do
+    it "parses delimited log entries" $ do
+      let delim = "---cl---"
+          input = delim <> "abc123" <> delim <> "abc" <> delim <> "Author" <> delim <> "2025-01-01" <> delim <> "feat: thing"
+          entries = parseChangelogEntries delim input
+      length entries `shouldBe` 1
+      case head entries of
+        Object o -> do
+          KM.lookup "hash" o `shouldBe` Just (String "abc123")
+          KM.lookup "author" o `shouldBe` Just (String "Author")
+          KM.lookup "type" o `shouldBe` Just (String "feat")
+        _ -> expectationFailure "expected object"
+
+    it "parses multiple entries" $ do
+      let delim = "---cl---"
+          input = T.unlines
+            [ delim <> "aaa" <> delim <> "a" <> delim <> "Alice" <> delim <> "2025-01-01" <> delim <> "feat: one"
+            , delim <> "bbb" <> delim <> "b" <> delim <> "Bob" <> delim <> "2025-01-02" <> delim <> "fix: two"
+            ]
+          entries = parseChangelogEntries delim input
+      length entries `shouldBe` 2
+
+    it "handles empty input" $ do
+      parseChangelogEntries "---cl---" "" `shouldBe` []
+
+  describe "filterBranches" $ do
+    it "removes current and target branches" $ do
+      let raw = T.unlines ["* master", "  feature-a", "  feature-b"]
+          result = filterBranches "master" "master" raw
+      result `shouldBe` ["feature-a", "feature-b"]
+
+    it "removes HEAD detached entries" $ do
+      let raw = T.unlines ["  (HEAD detached at abc123)", "  feature"]
+          result = filterBranches "master" "master" raw
+      result `shouldBe` ["feature"]
+
+    it "handles empty branch list" $ do
+      filterBranches "master" "master" "" `shouldBe` []
 
 -- =========================================================================
 -- wantsJson edge cases

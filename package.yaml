@@ -76,6 +76,7 @@ library:
     - GitLLM.Git.Tools.Archive
     - GitLLM.Git.Tools.Hooks
     - GitLLM.Git.Tools.Inspect
+    - GitLLM.Git.Tools.Composite
 
 executables:
   gitllm:

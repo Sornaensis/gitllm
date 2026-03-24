@@ -61,6 +61,7 @@ library
       GitLLM.Git.Tools.Archive
       GitLLM.Git.Tools.Hooks
       GitLLM.Git.Tools.Inspect
+      GitLLM.Git.Tools.Composite
   other-modules:
       Paths_gitllm
   hs-source-dirs:

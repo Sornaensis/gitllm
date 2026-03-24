@@ -35,6 +35,7 @@ import qualified GitLLM.Git.Tools.Patch     as Patch
 import qualified GitLLM.Git.Tools.Archive   as Archive
 import qualified GitLLM.Git.Tools.Hooks     as Hooks
 import qualified GitLLM.Git.Tools.Inspect   as Inspect
+import qualified GitLLM.Git.Tools.Composite as Composite
 
 -- | All tool definitions registered with the server.
 allToolDefinitions :: [ToolDefinition]
@@ -64,6 +65,7 @@ allToolDefinitions = concat
   , Archive.tools
   , Hooks.tools
   , Inspect.tools
+  , Composite.tools
   ]
 
 -- | Route a tools/call request to the appropriate handler.
@@ -172,5 +174,10 @@ routeRequest ctx name params = case name of
   "git_ls_tree"           -> Inspect.handleLsTree ctx params
   "git_rev_parse"         -> Inspect.handleRevParse ctx params
   "git_count_objects"     -> Inspect.handleCountObjects ctx params
+  -- Composite operations
+  "git_branch_cleanup"    -> Composite.handleBranchCleanup ctx params
+  "git_sync_fork"         -> Composite.handleSyncFork ctx params
+  "git_repo_health"       -> Composite.handleRepoHealth ctx params
+  "git_changelog_generate"-> Composite.handleChangelogGenerate ctx params
 
   _ -> pure $ ToolResult [TextContent ("Unknown tool: " <> name)] True

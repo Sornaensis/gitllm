@@ -39,6 +39,7 @@ import qualified GitLLM.Git.Tools.Hooks   as Hooks
 import qualified GitLLM.Git.Tools.Patch   as Patch
 import qualified GitLLM.Git.Tools.Archive as Archive
 import qualified GitLLM.Git.Tools.Submodule as Submodule
+import qualified GitLLM.Git.Tools.Composite as Composite
 
 import TestHelpers
 
@@ -80,6 +81,7 @@ spec = do
   submoduleSpec
   pathValidationSpec
   routerIntegrationSpec
+  compositeSpec
 
 -- =========================================================================
 -- Runner
@@ -1049,3 +1051,136 @@ routerIntegrationSpec = describe "Router (end-to-end)" $ around withTempGitRepo 
   it "routes git_remote_list" $ \ctx -> do
     result <- routeRequest ctx "git_remote_list" Nothing
     resultIsError result `shouldBe` False
+
+-- =========================================================================
+-- Composite Operations
+-- =========================================================================
+compositeSpec :: Spec
+compositeSpec = describe "Composite" $ do
+  branchCleanupSpec
+  repoHealthSpec
+  changelogSpec
+
+branchCleanupSpec :: Spec
+branchCleanupSpec = describe "git_branch_cleanup" $ around withTempGitRepo $ do
+  it "dry run shows no branches to clean on fresh repo" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Composite.handleBranchCleanup ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "No merged branches"
+
+  it "dry run lists merged branches" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    -- Create and merge a feature branch
+    void $ runGit ctx ["checkout", "-b", "feature-x"]
+    createRepoFile ctx "feature.txt" "feature"
+    commitAll ctx "feature commit"
+    void $ runGit ctx ["checkout", "master"]
+    void $ runGit ctx ["merge", "feature-x"]
+    result <- Composite.handleBranchCleanup ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "feature-x"
+
+  it "actually deletes merged branches when dry_run=false" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    void $ runGit ctx ["checkout", "-b", "to-delete"]
+    createRepoFile ctx "del.txt" "del"
+    commitAll ctx "delete me"
+    void $ runGit ctx ["checkout", "master"]
+    void $ runGit ctx ["merge", "to-delete"]
+    let params = Just $ object ["dry_run" .= False]
+    result <- Composite.handleBranchCleanup ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "to-delete"
+    -- Verify branch is actually gone
+    branchResult <- runGit ctx ["branch"]
+    case branchResult of
+      Right branches -> branches `shouldNotSatisfy` T.isInfixOf "to-delete"
+      Left _ -> expectationFailure "Failed to list branches"
+
+  it "JSON output in dry run mode" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    let params = Just $ object ["output" .= ("json" :: Text)]
+    result <- Composite.handleBranchCleanup ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "dry_run"
+
+repoHealthSpec :: Spec
+repoHealthSpec = describe "git_repo_health" $ around withTempGitRepo $ do
+  it "returns health report on fresh repo" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Composite.handleRepoHealth ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "Repository Health Report"
+
+  it "JSON output includes object_stats and fsck" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    let params = Just $ object ["output" .= ("json" :: Text)]
+    result <- Composite.handleRepoHealth ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "object_stats"
+    out `shouldSatisfy` T.isInfixOf "fsck"
+
+changelogSpec :: Spec
+changelogSpec = describe "git_changelog_generate" $ around withTempGitRepo $ do
+  it "generates changelog from commit history" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    createRepoFile ctx "feat.txt" "feat"
+    commitAll ctx "feat: add feature"
+    createRepoFile ctx "fix.txt" "fix"
+    commitAll ctx "fix: resolve bug"
+    result <- Composite.handleChangelogGenerate ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "Changelog"
+    out `shouldSatisfy` T.isInfixOf "feat: add feature"
+    out `shouldSatisfy` T.isInfixOf "fix: resolve bug"
+
+  it "respects limit parameter" $ \ctx -> do
+    createRepoFile ctx "a.txt" "a"
+    commitAll ctx "commit a"
+    createRepoFile ctx "b.txt" "b"
+    commitAll ctx "commit b"
+    createRepoFile ctx "c.txt" "c"
+    commitAll ctx "commit c"
+    let params = Just $ object ["limit" .= (1 :: Int)]
+    result <- Composite.handleChangelogGenerate ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "commit c"
+    -- Should NOT contain the first commit since limit=1
+    out `shouldNotSatisfy` T.isInfixOf "commit a"
+
+  it "JSON output includes grouped commits" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "feat: initial feature"
+    createRepoFile ctx "fix.txt" "fix"
+    commitAll ctx "fix: a bugfix"
+    let params = Just $ object ["output" .= ("json" :: Text)]
+    result <- Composite.handleChangelogGenerate ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "commits"
+    out `shouldSatisfy` T.isInfixOf "grouped"
+
+  it "group_by author works" $ \ctx -> do
+    createRepoFile ctx "a.txt" "a"
+    commitAll ctx "commit by author"
+    let params = Just $ object ["group_by" .= ("author" :: Text)]
+    result <- Composite.handleChangelogGenerate ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "Test User"
