@@ -14,6 +14,7 @@ import Test.Hspec
 import GitLLM.MCP.Router
 import GitLLM.MCP.Types
 import GitLLM.Git.Types (GitContext(..))
+import TestHelpers (withTempGitRepo, createRepoFile, commitAll)
 
 spec :: Spec
 spec = do
@@ -78,7 +79,7 @@ toolDefinitionsSpec = describe "allToolDefinitions" $ do
 routingSpec :: Spec
 routingSpec = describe "routeRequest" $ do
   it "returns error for unknown tool" $ do
-    let ctx = GitContext "."
+    let ctx = GitContext "." Nothing
     result <- routeRequest ctx "nonexistent_tool" Nothing
     resultIsError result `shouldBe` True
     case resultContent result of
@@ -86,20 +87,22 @@ routingSpec = describe "routeRequest" $ do
       _               -> expectationFailure "Expected single TextContent"
 
   it "returns error with tool name for unknown tool" $ do
-    let ctx = GitContext "."
+    let ctx = GitContext "." Nothing
     result <- routeRequest ctx "bogus_tool_xyz" Nothing
     case resultContent result of
       [TextContent t] -> t `shouldSatisfy` T.isInfixOf "bogus_tool_xyz"
       _               -> expectationFailure "Expected error text"
 
   it "all registered tool names have routes (not 'Unknown tool')" $ do
-    let ctx = GitContext "."
-    forM_ allToolDefinitions $ \td -> do
-      result <- try (routeRequest ctx (toolName td) Nothing) :: IO (Either SomeException ToolResult)
-      case result of
-        Right tr -> resultContent tr `shouldSatisfy` \cs ->
-          not (any (\(TextContent t) -> T.isPrefixOf "Unknown tool: " t) cs)
-        Left _ -> pure ()  -- Git command errors are fine; means the route was found
+    withTempGitRepo $ \ctx -> do
+      createRepoFile ctx "init.txt" "init"
+      commitAll ctx "initial"
+      forM_ allToolDefinitions $ \td -> do
+        result <- try (routeRequest ctx (toolName td) Nothing) :: IO (Either SomeException ToolResult)
+        case result of
+          Right tr -> resultContent tr `shouldSatisfy` \cs ->
+            not (any (\(TextContent t) -> T.isPrefixOf "Unknown tool: " t) cs)
+          Left _ -> pure ()  -- Git command errors are fine; means the route was found
 
 -- -------------------------------------------------------------------------
 toolCoverageSpec :: Spec

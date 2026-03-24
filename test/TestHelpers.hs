@@ -21,7 +21,7 @@ withTempGitRepo action = withSystemTempDirectory "gitllm-test" $ \dir -> do
   callProcess "git" ["init", dir]
   callProcess "git" ["-C", dir, "config", "user.email", "test@test.com"]
   callProcess "git" ["-C", dir, "config", "user.name", "Test User"]
-  action (GitContext dir)
+  action (GitContext dir Nothing)
 
 -- | Write a file into the test repo.
 createRepoFile :: GitContext -> FilePath -> String -> IO ()

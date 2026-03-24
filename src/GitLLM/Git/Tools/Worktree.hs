@@ -42,17 +42,21 @@ handleList ctx _ = do
 handleAdd :: GitContext -> Maybe Value -> IO ToolResult
 handleAdd ctx params = case getTextParam "path" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: path"] True
-  Just path -> do
-    let branchArgs = case getTextParam "new_branch" params of
-          Just nb -> ["-b", textArg nb]
-          Nothing -> maybe [] (\b -> [textArg b]) (getTextParam "branch" params)
-    result <- runGit ctx (["worktree", "add", textArg path] ++ branchArgs)
-    gitResultToToolResult result
+  Just path -> case validatePath path of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      let branchArgs = case getTextParam "new_branch" params of
+            Just nb -> ["-b", textArg nb]
+            Nothing -> maybe [] (\b -> [textArg b]) (getTextParam "branch" params)
+      result <- runGit ctx (["worktree", "add", textArg path] ++ branchArgs)
+      gitResultToToolResult result
 
 handleRemove :: GitContext -> Maybe Value -> IO ToolResult
 handleRemove ctx params = case getTextParam "path" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: path"] True
-  Just path -> do
-    let forceFlag = if getBoolParam "force" params == Just True then ["--force"] else []
-    result <- runGit ctx (["worktree", "remove"] ++ forceFlag ++ [textArg path])
-    gitResultToToolResult result
+  Just path -> case validatePath path of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      let forceFlag = if getBoolParam "force" params == Just True then ["--force"] else []
+      result <- runGit ctx (["worktree", "remove"] ++ forceFlag ++ [textArg path])
+      gitResultToToolResult result

@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Log (tools, handle, handleOneline, handleFile, handleGraph) where
+module GitLLM.Git.Tools.Log (tools, handle, handleOneline, handleFile, handleGraph, parseLogEntries) where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GitLLM.MCP.Types
 import GitLLM.Git.Types
 import GitLLM.Git.Runner
@@ -18,19 +19,24 @@ tools =
         , "author" .= object [ "type" .= ("string" :: Text), "description" .= ("Filter by author pattern" :: Text) ]
         , "since" .= object [ "type" .= ("string" :: Text), "description" .= ("Show commits after date (e.g. '2 weeks ago')" :: Text) ]
         , "until" .= object [ "type" .= ("string" :: Text), "description" .= ("Show commits before date" :: Text) ]
+        , outputParam
         ]
         [])
       readOnly
   , mkToolDefA "git_log_oneline"
       "Show commit log in compact format. Returns one line per commit: SHA title"
       (mkSchema
-        [ "max_count" .= object [ "type" .= ("integer" :: Text), "description" .= ("Maximum number of commits" :: Text) ] ]
+        [ "max_count" .= object [ "type" .= ("integer" :: Text), "description" .= ("Maximum number of commits" :: Text) ]
+        , outputParam
+        ]
         [])
       readOnly
   , mkToolDefA "git_log_file"
       "Show commit log for a specific file, including renames"
       (mkSchema
-        [ "path" .= object [ "type" .= ("string" :: Text), "description" .= ("File path to show history for" :: Text) ] ]
+        [ "path" .= object [ "type" .= ("string" :: Text), "description" .= ("File path to show history for" :: Text) ]
+        , outputParam
+        ]
         ["path"])
       readOnly
   , mkToolDefA "git_log_graph"
@@ -43,31 +49,88 @@ tools =
       readOnly
   ]
 
+-- | Delimiter for machine-parseable log format (unlikely in commit messages).
+logDelim :: String
+logDelim = "---gitllm-field---"
+
+logDelimT :: Text
+logDelimT = "---gitllm-field---"
+
+-- | A --format string that produces delimited fields.
+jsonLogFormat :: String
+jsonLogFormat = "%H" ++ logDelim ++ "%h" ++ logDelim ++ "%an" ++ logDelim
+  ++ "%ae" ++ logDelim ++ "%ai" ++ logDelim ++ "%s" ++ logDelim ++ "%P"
+
 handle :: GitContext -> Maybe Value -> IO ToolResult
-handle ctx params = do
-  let args = ["log"] ++ buildLogArgs params
-  result <- runGit ctx args
-  gitResultToToolResult result
+handle ctx params
+  | wantsJson params = do
+      let args = ["log", "--format=" ++ jsonLogFormat] ++ buildLogArgs params
+      result <- runGit ctx args
+      pure $ case result of
+        Right out -> jsonResult $ object ["commits" .= parseLogEntries out]
+        Left err  -> gitErrorToResult err
+  | otherwise = do
+      let args = ["log"] ++ buildLogArgs params
+      result <- runGit ctx args
+      gitResultToToolResult result
 
 handleOneline :: GitContext -> Maybe Value -> IO ToolResult
-handleOneline ctx params = do
-  let args = ["log", "--oneline"] ++ buildCountArg params
-  result <- runGit ctx args
-  gitResultToToolResult result
+handleOneline ctx params
+  | wantsJson params = do
+      let args = ["log", "--format=" ++ jsonLogFormat] ++ buildCountArg params
+      result <- runGit ctx args
+      pure $ case result of
+        Right out -> jsonResult $ object ["commits" .= parseLogEntries out]
+        Left err  -> gitErrorToResult err
+  | otherwise = do
+      let args = ["log", "--oneline"] ++ buildCountArg params
+      result <- runGit ctx args
+      gitResultToToolResult result
 
 handleFile :: GitContext -> Maybe Value -> IO ToolResult
 handleFile ctx params = do
   case getTextParam "path" params of
     Nothing -> pure $ ToolResult [TextContent "Missing required parameter: path"] True
-    Just path -> do
-      result <- runGit ctx ["log", "--follow", "--", textArg path]
-      gitResultToToolResult result
+    Just path
+      | wantsJson params -> do
+          result <- runGit ctx ["log", "--follow", "--format=" ++ jsonLogFormat, "--", textArg path]
+          pure $ case result of
+            Right out -> jsonResult $ object ["commits" .= parseLogEntries out]
+            Left err  -> gitErrorToResult err
+      | otherwise -> do
+          result <- runGit ctx ["log", "--follow", "--", textArg path]
+          gitResultToToolResult result
 
 handleGraph :: GitContext -> Maybe Value -> IO ToolResult
 handleGraph ctx params = do
   let args = ["log", "--graph", "--oneline", "--decorate"] ++ buildCountArg params ++ allFlag params
   result <- runGit ctx args
   gitResultToToolResult result
+
+-- | Parse delimited log output into a list of commit objects.
+parseLogEntries :: Text -> [Value]
+parseLogEntries raw =
+  [ parseLogLine l | l <- T.lines raw, not (T.null l) ]
+
+parseLogLine :: Text -> Value
+parseLogLine line =
+  case T.splitOn logDelimT line of
+    [hash, short, author, email, date, subject, parents] -> object
+      [ "hash"    .= hash
+      , "short"   .= short
+      , "author"  .= author
+      , "email"   .= email
+      , "date"    .= date
+      , "subject" .= subject
+      , "parents" .= T.words parents
+      ]
+    _ -> object ["raw" .= line]
+
+gitErrorToResult :: GitError -> ToolResult
+gitErrorToResult (GitProcessError _ err) = ToolResult [TextContent err] True
+gitErrorToResult (GitParseError err)     = ToolResult [TextContent err] True
+gitErrorToResult (GitValidationError err)= ToolResult [TextContent err] True
+gitErrorToResult (GitTimeoutError secs)  = ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
 
 -- Helpers
 buildLogArgs :: Maybe Value -> [String]

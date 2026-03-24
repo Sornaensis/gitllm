@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Remote (tools, handleList, handleAdd, handleRemove, handleFetch, handlePull, handlePush) where
+module GitLLM.Git.Tools.Remote (tools, handleList, handleAdd, handleRemove, handleFetch, handlePull, handlePush, parseRemoteLines) where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GitLLM.MCP.Types
 import GitLLM.Git.Types
 import GitLLM.Git.Runner
@@ -13,7 +14,7 @@ tools :: [ToolDefinition]
 tools =
   [ mkToolDefA "git_remote_list"
       "List configured remote repositories with their URLs"
-      (mkSchema [] [])
+      (mkSchema [outputParam] [])
       readOnly
   , mkToolDefA "git_remote_add"
       "Add a new remote repository"
@@ -60,9 +61,33 @@ tools =
   ]
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult
-handleList ctx _ = do
-  result <- runGit ctx ["remote", "-v"]
-  gitResultToToolResult result
+handleList ctx params
+  | wantsJson params = do
+      result <- runGit ctx ["remote", "-v"]
+      pure $ case result of
+        Right out -> jsonResult $ object ["remotes" .= parseRemoteLines out]
+        Left (GitProcessError _ err) -> ToolResult [TextContent err] True
+        Left (GitParseError err)     -> ToolResult [TextContent err] True
+        Left (GitValidationError err)-> ToolResult [TextContent err] True
+        Left (GitTimeoutError secs)  -> ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+  | otherwise = do
+      result <- runGit ctx ["remote", "-v"]
+      gitResultToToolResult result
+
+parseRemoteLines :: Text -> [Value]
+parseRemoteLines raw =
+  -- git remote -v outputs: name\turl (type)
+  -- Deduplicate by keeping only (fetch) entries
+  [ parseRemoteLine l | l <- T.lines raw, not (T.null l), T.isSuffixOf "(fetch)" l ]
+
+parseRemoteLine :: Text -> Value
+parseRemoteLine line =
+  case T.words line of
+    (name:url:_) -> object
+      [ "name" .= name
+      , "url"  .= url
+      ]
+    _ -> object ["raw" .= line]
 
 handleAdd :: GitContext -> Maybe Value -> IO ToolResult
 handleAdd ctx params =

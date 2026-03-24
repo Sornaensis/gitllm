@@ -26,11 +26,13 @@ tools =
 handle :: GitContext -> Maybe Value -> IO ToolResult
 handle ctx params = case getTextParam "path" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: path"] True
-  Just path -> do
-    let lineRange = case (getIntParam "line_start" params, getIntParam "line_end" params) of
-          (Just s, Just e) -> ["-L", show s ++ "," ++ show e]
-          (Just s, Nothing) -> ["-L", show s ++ ","]
-          _                -> []
-        refArg = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
-    result <- runGit ctx (["blame"] ++ lineRange ++ refArg ++ ["--", textArg path])
-    gitResultToToolResult result
+  Just path -> case validatePath path of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      let lineRange = case (getIntParam "line_start" params, getIntParam "line_end" params) of
+            (Just s, Just e) -> ["-L", show s ++ "," ++ show e]
+            (Just s, Nothing) -> ["-L", show s ++ ","]
+            _                -> []
+          refArg = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
+      result <- runGit ctx (["blame"] ++ lineRange ++ refArg ++ ["--", textArg path])
+      gitResultToToolResult result

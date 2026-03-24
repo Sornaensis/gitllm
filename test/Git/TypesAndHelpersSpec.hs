@@ -26,11 +26,11 @@ spec = do
 gitTypesSpec :: Spec
 gitTypesSpec = describe "GitLLM.Git.Types" $ do
   it "GitContext stores repoPath" $ do
-    gitRepoPath (GitContext "/tmp/repo") `shouldBe` "/tmp/repo"
+    gitRepoPath (GitContext "/tmp/repo" Nothing) `shouldBe` "/tmp/repo"
 
   it "GitContext supports Eq" $ do
-    GitContext "/a" `shouldBe` GitContext "/a"
-    GitContext "/a" `shouldNotBe` GitContext "/b"
+    GitContext "/a" Nothing `shouldBe` GitContext "/a" Nothing
+    GitContext "/a" Nothing `shouldNotBe` GitContext "/b" Nothing
 
   it "GitError constructors are distinct" $ do
     GitProcessError 1 "fail" `shouldNotBe` GitParseError "fail"

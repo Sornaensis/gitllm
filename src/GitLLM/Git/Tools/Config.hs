@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Config (tools, handleGet, handleSet, handleList) where
+module GitLLM.Git.Tools.Config (tools, handleGet, handleSet, handleList, parseConfigLines) where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GitLLM.MCP.Types
 import GitLLM.Git.Types
 import GitLLM.Git.Runner
@@ -30,7 +31,9 @@ tools =
   , mkToolDefA "git_config_list"
       "List all git configuration values in effect"
       (mkSchema
-        [ "scope" .= object [ "type" .= ("string" :: Text), "description" .= ("Configuration scope" :: Text), "enum" .= (["local", "global", "system"] :: [Text]) ] ]
+        [ "scope" .= object [ "type" .= ("string" :: Text), "description" .= ("Configuration scope" :: Text), "enum" .= (["local", "global", "system"] :: [Text]) ]
+        , outputParam
+        ]
         [])
       readOnly
   ]
@@ -63,5 +66,29 @@ handleList ctx params = do
         Just "system" -> ["--system"]
         Just "local"  -> ["--local"]
         _             -> []
-  result <- runGit ctx (["config"] ++ scopeArg ++ ["--list"])
-  gitResultToToolResult result
+  if wantsJson params
+    then do
+      result <- runGit ctx (["config"] ++ scopeArg ++ ["--list"])
+      pure $ case result of
+        Right out -> jsonResult $ object ["config" .= parseConfigLines out]
+        Left (GitProcessError _ err) -> ToolResult [TextContent err] True
+        Left (GitParseError err)     -> ToolResult [TextContent err] True
+        Left (GitValidationError err)-> ToolResult [TextContent err] True
+        Left (GitTimeoutError secs)  -> ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+    else do
+      result <- runGit ctx (["config"] ++ scopeArg ++ ["--list"])
+      gitResultToToolResult result
+
+parseConfigLines :: Text -> [Value]
+parseConfigLines raw =
+  [ parseConfigLine l | l <- T.lines raw, not (T.null l) ]
+
+parseConfigLine :: Text -> Value
+parseConfigLine line =
+  case T.breakOn "=" line of
+    (key, rest)
+      | not (T.null rest) -> object
+          [ "key"   .= key
+          , "value" .= T.drop 1 rest
+          ]
+      | otherwise -> object ["raw" .= line]

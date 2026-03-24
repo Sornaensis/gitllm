@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Stash (tools, handlePush, handlePop, handleList, handleShow, handleDrop) where
+module GitLLM.Git.Tools.Stash (tools, handlePush, handlePop, handleList, handleShow, handleDrop, parseStashLines) where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GitLLM.MCP.Types
 import GitLLM.Git.Types
 import GitLLM.Git.Runner
@@ -28,7 +29,7 @@ tools =
       mutating
   , mkToolDefA "git_stash_list"
       "List all stash entries"
-      (mkSchema [] [])
+      (mkSchema [outputParam] [])
       readOnly
   , mkToolDefA "git_stash_show"
       "Show the changes recorded in a stash entry"
@@ -61,9 +62,31 @@ handlePop ctx params = do
   gitResultToToolResult result
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult
-handleList ctx _ = do
-  result <- runGit ctx ["stash", "list"]
-  gitResultToToolResult result
+handleList ctx params
+  | wantsJson params = do
+      result <- runGit ctx ["stash", "list", "--format=%gd\t%gs"]
+      pure $ case result of
+        Right out -> jsonResult $ object ["stashes" .= parseStashLines out]
+        Left (GitProcessError _ err) -> ToolResult [TextContent err] True
+        Left (GitParseError err)     -> ToolResult [TextContent err] True
+        Left (GitValidationError err)-> ToolResult [TextContent err] True
+        Left (GitTimeoutError secs)  -> ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+  | otherwise = do
+      result <- runGit ctx ["stash", "list"]
+      gitResultToToolResult result
+
+parseStashLines :: Text -> [Value]
+parseStashLines raw =
+  [ parseStashLine l | l <- T.lines raw, not (T.null l) ]
+
+parseStashLine :: Text -> Value
+parseStashLine line =
+  case T.splitOn "\t" line of
+    [ref, description] -> object
+      [ "ref"         .= ref
+      , "description" .= description
+      ]
+    _ -> object ["raw" .= line]
 
 handleShow :: GitContext -> Maybe Value -> IO ToolResult
 handleShow ctx params = do

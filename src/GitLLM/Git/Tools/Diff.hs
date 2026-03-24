@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Diff (tools, handle, handleStaged, handleBranches, handleStat) where
+module GitLLM.Git.Tools.Diff (tools, handle, handleStaged, handleBranches, handleStat, parseNumstat) where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GitLLM.MCP.Types
 import GitLLM.Git.Types
 import GitLLM.Git.Runner
@@ -36,7 +37,9 @@ tools =
   , mkToolDefA "git_diff_stat"
       "Show diff statistics (files changed, insertions, deletions). Returns file-level stats"
       (mkSchema
-        [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Ref to compare against" :: Text), "default" .= ("HEAD" :: Text) ] ]
+        [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Ref to compare against" :: Text), "default" .= ("HEAD" :: Text) ]
+        , outputParam
+        ]
         [])
       readOnly
   ]
@@ -63,7 +66,31 @@ handleBranches ctx params = do
     _ -> pure $ ToolResult [TextContent "Missing required parameters: from_ref, to_ref"] True
 
 handleStat :: GitContext -> Maybe Value -> IO ToolResult
-handleStat ctx params = do
-  let ref = maybe "HEAD" textArg (getTextParam "ref" params)
-  result <- runGit ctx ["diff", "--stat", ref]
-  gitResultToToolResult result
+handleStat ctx params
+  | wantsJson params = do
+      let ref = maybe "HEAD" textArg (getTextParam "ref" params)
+      result <- runGit ctx ["diff", "--numstat", ref]
+      pure $ case result of
+        Right out -> jsonResult $ object ["files" .= parseNumstat out]
+        Left (GitProcessError _ err) -> ToolResult [TextContent err] True
+        Left (GitParseError err)     -> ToolResult [TextContent err] True
+        Left (GitValidationError err)-> ToolResult [TextContent err] True
+        Left (GitTimeoutError secs)  -> ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+  | otherwise = do
+      let ref = maybe "HEAD" textArg (getTextParam "ref" params)
+      result <- runGit ctx ["diff", "--stat", ref]
+      gitResultToToolResult result
+
+parseNumstat :: Text -> [Value]
+parseNumstat raw =
+  [ parseNumstatLine l | l <- T.lines raw, not (T.null l) ]
+
+parseNumstatLine :: Text -> Value
+parseNumstatLine line =
+  case T.words line of
+    (added:deleted:rest) -> object
+      [ "added"   .= added
+      , "deleted" .= deleted
+      , "path"    .= T.unwords rest
+      ]
+    _ -> object ["raw" .= line]

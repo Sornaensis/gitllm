@@ -30,6 +30,15 @@ import qualified GitLLM.Git.Tools.Search  as Search
 import qualified GitLLM.Git.Tools.Clean   as Clean
 import qualified GitLLM.Git.Tools.Reflog  as Reflog
 import qualified GitLLM.Git.Tools.Reset   as Reset
+import qualified GitLLM.Git.Tools.Merge   as Merge
+import qualified GitLLM.Git.Tools.Cherry  as Cherry
+import qualified GitLLM.Git.Tools.Rebase  as Rebase
+import qualified GitLLM.Git.Tools.Bisect  as Bisect
+import qualified GitLLM.Git.Tools.Worktree as Worktree
+import qualified GitLLM.Git.Tools.Hooks   as Hooks
+import qualified GitLLM.Git.Tools.Patch   as Patch
+import qualified GitLLM.Git.Tools.Archive as Archive
+import qualified GitLLM.Git.Tools.Submodule as Submodule
 
 import TestHelpers
 
@@ -60,6 +69,16 @@ spec = do
   stashSpec
   remoteSpec
   resetSpec
+  mergeSpec
+  cherryPickSpec
+  rebaseSpec
+  bisectSpec
+  worktreeSpec
+  hooksSpec
+  patchSpec
+  archiveSpec
+  submoduleSpec
+  pathValidationSpec
   routerIntegrationSpec
 
 -- =========================================================================
@@ -707,6 +726,308 @@ resetSpec = describe "Reset" $ around withTempGitRepo $ do
     resultIsError result `shouldBe` True
 
 -- =========================================================================
+-- Merge
+-- =========================================================================
+mergeSpec :: Spec
+mergeSpec = describe "Merge" $ around withTempGitRepo $ do
+  it "git_merge merges a branch" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    void $ runGit ctx ["checkout", "-b", "feature"]
+    createRepoFile ctx "feature.txt" "feature work"
+    commitAll ctx "feature commit"
+    void $ runGit ctx ["checkout", "master"]
+    let params = Just $ object ["branch" .= ("feature" :: Text)]
+    result <- Merge.handle ctx params
+    resultIsError result `shouldBe` False
+    -- Verify file from feature branch exists
+    st <- runGit ctx ["ls-files"]
+    case st of
+      Right out -> out `shouldSatisfy` T.isInfixOf "feature.txt"
+      Left _    -> expectationFailure "ls-files failed"
+
+  it "git_merge with --no-ff" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    void $ runGit ctx ["checkout", "-b", "feat2"]
+    createRepoFile ctx "feat2.txt" "work"
+    commitAll ctx "feat2"
+    void $ runGit ctx ["checkout", "master"]
+    let params = Just $ object
+          [ "branch" .= ("feat2" :: Text)
+          , "no_ff" .= True
+          , "message" .= ("Merge feat2" :: Text)
+          ]
+    result <- Merge.handle ctx params
+    resultIsError result `shouldBe` False
+
+  it "git_merge requires branch" $ \ctx -> do
+    result <- Merge.handle ctx Nothing
+    resultIsError result `shouldBe` True
+
+  it "git_merge_status on clean repo" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Merge.handleStatus ctx Nothing
+    resultIsError result `shouldBe` False
+
+-- =========================================================================
+-- Cherry-pick
+-- =========================================================================
+cherryPickSpec :: Spec
+cherryPickSpec = describe "Cherry-pick" $ around withTempGitRepo $ do
+  it "git_cherry_pick applies a commit" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    void $ runGit ctx ["checkout", "-b", "side"]
+    createRepoFile ctx "cherry.txt" "cherry content"
+    commitAll ctx "cherry commit"
+    -- Get the commit SHA
+    shaResult <- runGit ctx ["rev-parse", "HEAD"]
+    case shaResult of
+      Right sha -> do
+        void $ runGit ctx ["checkout", "master"]
+        let params = Just $ object ["commits" .= ([T.strip sha] :: [Text])]
+        result <- Cherry.handle ctx params
+        resultIsError result `shouldBe` False
+        -- Verify cherry.txt exists
+        ls <- runGit ctx ["ls-files"]
+        case ls of
+          Right out -> out `shouldSatisfy` T.isInfixOf "cherry.txt"
+          Left _    -> expectationFailure "ls-files failed"
+      Left _ -> expectationFailure "rev-parse failed"
+
+  it "git_cherry_pick requires commits" $ \ctx -> do
+    result <- Cherry.handle ctx Nothing
+    resultIsError result `shouldBe` True
+
+-- =========================================================================
+-- Rebase
+-- =========================================================================
+rebaseSpec :: Spec
+rebaseSpec = describe "Rebase" $ around withTempGitRepo $ do
+  it "git_rebase onto another branch" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    void $ runGit ctx ["checkout", "-b", "feature"]
+    createRepoFile ctx "feat.txt" "work"
+    commitAll ctx "feature work"
+    void $ runGit ctx ["checkout", "master"]
+    createRepoFile ctx "main.txt" "main work"
+    commitAll ctx "main work"
+    void $ runGit ctx ["checkout", "feature"]
+    let params = Just $ object ["onto" .= ("master" :: Text)]
+    result <- Rebase.handle ctx params
+    resultIsError result `shouldBe` False
+
+  it "git_rebase requires onto" $ \ctx -> do
+    result <- Rebase.handle ctx Nothing
+    resultIsError result `shouldBe` True
+
+  it "git_rebase_interactive lists commits" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    createRepoFile ctx "a.txt" "a"
+    commitAll ctx "second"
+    let params = Just $ object ["onto" .= ("HEAD~1" :: Text)]
+    result <- Rebase.handleInteractive ctx params
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "second"
+
+  it "git_rebase_interactive requires onto" $ \ctx -> do
+    result <- Rebase.handleInteractive ctx Nothing
+    resultIsError result `shouldBe` True
+
+-- =========================================================================
+-- Bisect
+-- =========================================================================
+bisectSpec :: Spec
+bisectSpec = describe "Bisect" $ around withTempGitRepo $ do
+  it "git_bisect_start and git_bisect_reset" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    createRepoFile ctx "a.txt" "a"
+    commitAll ctx "second"
+    result <- Bisect.handleStart ctx Nothing
+    resultIsError result `shouldBe` False
+    resetResult <- Bisect.handleReset ctx Nothing
+    resultIsError resetResult `shouldBe` False
+
+  it "bisect workflow: start, good, bad" $ \ctx -> do
+    createRepoFile ctx "init.txt" "v1"
+    commitAll ctx "good commit"
+    goodSha <- runGit ctx ["rev-parse", "HEAD"]
+    createRepoFile ctx "init.txt" "v2"
+    commitAll ctx "second"
+    createRepoFile ctx "init.txt" "v3"
+    commitAll ctx "bad commit"
+    case goodSha of
+      Right sha -> do
+        let startParams = Just $ object
+              [ "bad" .= ("HEAD" :: Text)
+              , "good" .= T.strip sha
+              ]
+        startResult <- Bisect.handleStart ctx startParams
+        resultIsError startResult `shouldBe` False
+        resetResult <- Bisect.handleReset ctx Nothing
+        resultIsError resetResult `shouldBe` False
+      Left _ -> expectationFailure "rev-parse failed"
+
+-- =========================================================================
+-- Worktree
+-- =========================================================================
+worktreeSpec :: Spec
+worktreeSpec = describe "Worktree" $ around withTempGitRepo $ do
+  it "git_worktree_list shows main worktree" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Worktree.handleList ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    T.length out `shouldSatisfy` (> 0)
+
+  it "git_worktree_add requires path" $ \ctx -> do
+    result <- Worktree.handleAdd ctx Nothing
+    resultIsError result `shouldBe` True
+
+  it "git_worktree_remove requires path" $ \ctx -> do
+    result <- Worktree.handleRemove ctx Nothing
+    resultIsError result `shouldBe` True
+
+  it "git_worktree_add rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["path" .= ("../../escape" :: Text)]
+    result <- Worktree.handleAdd ctx params
+    resultIsError result `shouldBe` True
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "traversal"
+
+-- =========================================================================
+-- Hooks
+-- =========================================================================
+hooksSpec :: Spec
+hooksSpec = describe "Hooks" $ around withTempGitRepo $ do
+  it "git_hooks_list shows available hooks" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Hooks.handleList ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "hooks"
+
+-- =========================================================================
+-- Patch
+-- =========================================================================
+patchSpec :: Spec
+patchSpec = describe "Patch" $ around withTempGitRepo $ do
+  it "git_format_patch generates patch" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    createRepoFile ctx "patch.txt" "patched"
+    commitAll ctx "patch commit"
+    result <- Patch.handleFormatPatch ctx Nothing
+    resultIsError result `shouldBe` False
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf ".patch"
+
+  it "git_format_patch with count" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    createRepoFile ctx "a.txt" "a"
+    commitAll ctx "second"
+    let params = Just $ object ["count" .= (1 :: Int)]
+    result <- Patch.handleFormatPatch ctx params
+    resultIsError result `shouldBe` False
+
+  it "git_apply requires patch_path" $ \ctx -> do
+    result <- Patch.handleApply ctx Nothing
+    resultIsError result `shouldBe` True
+
+  it "git_apply rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["patch_path" .= ("../../evil.patch" :: Text)]
+    result <- Patch.handleApply ctx params
+    resultIsError result `shouldBe` True
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "traversal"
+
+-- =========================================================================
+-- Archive
+-- =========================================================================
+archiveSpec :: Spec
+archiveSpec = describe "Archive" $ around withTempGitRepo $ do
+  it "git_archive creates archive" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    let params = Just $ object
+          [ "format" .= ("zip" :: Text)
+          , "output" .= ("test.zip" :: Text)
+          ]
+    result <- Archive.handle ctx params
+    resultIsError result `shouldBe` False
+
+  it "git_archive with defaults" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    let params = Just $ object ["output" .= ("out.tar" :: Text)]
+    result <- Archive.handle ctx params
+    resultIsError result `shouldBe` False
+
+-- =========================================================================
+-- Submodule
+-- =========================================================================
+submoduleSpec :: Spec
+submoduleSpec = describe "Submodule" $ around withTempGitRepo $ do
+  it "git_submodule_list on repo with no submodules" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Submodule.handleList ctx Nothing
+    resultIsError result `shouldBe` False
+
+  it "git_submodule_add requires url" $ \ctx -> do
+    result <- Submodule.handleAdd ctx Nothing
+    resultIsError result `shouldBe` True
+
+  it "git_submodule_sync succeeds on empty" $ \ctx -> do
+    createRepoFile ctx "init.txt" "init"
+    commitAll ctx "initial"
+    result <- Submodule.handleSync ctx Nothing
+    resultIsError result `shouldBe` False
+
+-- =========================================================================
+-- Path validation
+-- =========================================================================
+pathValidationSpec :: Spec
+pathValidationSpec = describe "Path validation" $ around withTempGitRepo $ do
+  it "git_add rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["paths" .= (["../../etc/passwd"] :: [Text])]
+    result <- Staging.handleAdd ctx params
+    resultIsError result `shouldBe` True
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "Invalid path"
+
+  it "git_restore rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["paths" .= (["../escape"] :: [Text])]
+    result <- Staging.handleRestore ctx params
+    resultIsError result `shouldBe` True
+
+  it "git_restore_staged rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["paths" .= (["../escape"] :: [Text])]
+    result <- Staging.handleRestoreStaged ctx params
+    resultIsError result `shouldBe` True
+
+  it "git_blame rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["path" .= ("../../etc/shadow" :: Text)]
+    result <- Blame.handle ctx params
+    resultIsError result `shouldBe` True
+    let [TextContent out] = resultContent result
+    out `shouldSatisfy` T.isInfixOf "traversal"
+
+  it "git_reset_file rejects path traversal" $ \ctx -> do
+    let params = Just $ object ["paths" .= (["../escape.txt"] :: [Text])]
+    result <- Reset.handleFile ctx params
+    resultIsError result `shouldBe` True
+
+-- =========================================================================
 -- Router integration
 -- =========================================================================
 routerIntegrationSpec :: Spec
@@ -728,9 +1049,3 @@ routerIntegrationSpec = describe "Router (end-to-end)" $ around withTempGitRepo 
   it "routes git_remote_list" $ \ctx -> do
     result <- routeRequest ctx "git_remote_list" Nothing
     resultIsError result `shouldBe` False
-
-  where
-    isRight (Right _) = True
-    isRight _         = False
-    isLeft (Left _) = True
-    isLeft _        = False

@@ -38,9 +38,11 @@ tools =
 handleAdd :: GitContext -> Maybe Value -> IO ToolResult
 handleAdd ctx params = case getTextListParam "paths" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: paths"] True
-  Just paths -> do
-    result <- runGit ctx (["add", "--"] ++ map textArg paths)
-    gitResultToToolResult result
+  Just paths -> case validatePaths paths of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      result <- runGit ctx (["add", "--"] ++ map textArg paths)
+      gitResultToToolResult result
 
 handleAddAll :: GitContext -> Maybe Value -> IO ToolResult
 handleAddAll ctx _ = do
@@ -50,13 +52,17 @@ handleAddAll ctx _ = do
 handleRestore :: GitContext -> Maybe Value -> IO ToolResult
 handleRestore ctx params = case getTextListParam "paths" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: paths"] True
-  Just paths -> do
-    result <- runGit ctx (["restore", "--"] ++ map textArg paths)
-    gitResultToToolResult result
+  Just paths -> case validatePaths paths of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      result <- runGit ctx (["restore", "--"] ++ map textArg paths)
+      gitResultToToolResult result
 
 handleRestoreStaged :: GitContext -> Maybe Value -> IO ToolResult
 handleRestoreStaged ctx params = case getTextListParam "paths" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: paths"] True
-  Just paths -> do
-    result <- runGit ctx (["restore", "--staged", "--"] ++ map textArg paths)
-    gitResultToToolResult result
+  Just paths -> case validatePaths paths of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      result <- runGit ctx (["restore", "--staged", "--"] ++ map textArg paths)
+      gitResultToToolResult result

@@ -45,8 +45,10 @@ handleFormatPatch ctx params = do
 handleApply :: GitContext -> Maybe Value -> IO ToolResult
 handleApply ctx params = case getTextParam "patch_path" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: patch_path"] True
-  Just path -> do
-    let checkFlag = if getBoolParam "check" params == Just True then ["--check"] else []
-        statFlag  = if getBoolParam "stat" params == Just True then ["--stat"] else []
-    result <- runGit ctx (["apply"] ++ checkFlag ++ statFlag ++ [textArg path])
-    gitResultToToolResult result
+  Just path -> case validatePath path of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      let checkFlag = if getBoolParam "check" params == Just True then ["--check"] else []
+          statFlag  = if getBoolParam "stat" params == Just True then ["--stat"] else []
+      result <- runGit ctx (["apply"] ++ checkFlag ++ statFlag ++ [textArg path])
+      gitResultToToolResult result

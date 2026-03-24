@@ -9,6 +9,7 @@ import Options.Applicative
 data Opts = Opts
   { optRepoPath :: Maybe FilePath
   , optTransport :: Transport
+  , optTimeout :: Maybe Int
   }
 
 data Transport = StdioTransport | TcpTransport Int
@@ -22,6 +23,12 @@ optsParser = Opts
        <> help "Path to the git repository (defaults to current directory)"
         ))
   <*> transportParser
+  <*> optional (option auto
+        ( long "timeout"
+       <> short 't'
+       <> metavar "SECONDS"
+       <> help "Command timeout in seconds (default: 30)"
+        ))
 
 transportParser :: Parser Transport
 transportParser = tcpParser <|> pure StdioTransport
@@ -43,6 +50,7 @@ main = do
             TcpTransport p  -> "tcp:" <> show p
         , cfgServerName = "gitllm"
         , cfgVersion    = "0.1.0.0"
+        , cfgTimeout    = optTimeout opts
         }
   runServer cfg
   where

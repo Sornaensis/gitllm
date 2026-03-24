@@ -31,6 +31,7 @@ data ServerConfig = ServerConfig
   , cfgTransport  :: String       -- ^ "stdio" or "tcp:<port>"
   , cfgServerName :: Text
   , cfgVersion    :: Text
+  , cfgTimeout    :: Maybe Int    -- ^ Command timeout in seconds
   } deriving (Show, Eq)
 
 -- | JSON-RPC 2.0 request identifier — integer or string.

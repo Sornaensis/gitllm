@@ -24,7 +24,7 @@ import GitLLM.Git.Types (GitContext(..))
 runServer :: ServerConfig -> IO ()
 runServer cfg = do
   repoPath <- maybe getCurrentDirectory pure (cfgRepoPath cfg)
-  let ctx = GitContext { gitRepoPath = repoPath }
+  let ctx = GitContext { gitRepoPath = repoPath, gitTimeout = cfgTimeout cfg }
   case cfgTransport cfg of
     "stdio" -> runStdio cfg ctx
     _       -> putStrLn $ "Unsupported transport: " <> cfgTransport cfg

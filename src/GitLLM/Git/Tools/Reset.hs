@@ -42,7 +42,9 @@ handle ctx params = do
 handleFile :: GitContext -> Maybe Value -> IO ToolResult
 handleFile ctx params = case getTextListParam "paths" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: paths"] True
-  Just paths -> do
-    let ref = maybe "HEAD" textArg (getTextParam "ref" params)
-    result <- runGit ctx (["reset", ref, "--"] ++ map textArg paths)
-    gitResultToToolResult result
+  Just paths -> case validatePaths paths of
+    Left err -> pure $ ToolResult [TextContent err] True
+    Right _ -> do
+      let ref = maybe "HEAD" textArg (getTextParam "ref" params)
+      result <- runGit ctx (["reset", ref, "--"] ++ map textArg paths)
+      gitResultToToolResult result

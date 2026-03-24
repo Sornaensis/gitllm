@@ -3,10 +3,12 @@
 module GitLLM.Git.Tools.Branch
   ( tools, handleList, handleCreate, handleDelete, handleRename
   , handleCurrent, handleCheckout, handleSwitch
+  , parseBranchLines
   ) where
 
 import Data.Aeson
 import Data.Text (Text)
+import qualified Data.Text as T
 import GitLLM.MCP.Types
 import GitLLM.Git.Types
 import GitLLM.Git.Runner
@@ -19,6 +21,7 @@ tools =
       (mkSchema
         [ "all" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Include remote-tracking branches" :: Text) ]
         , "verbose" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show last commit on each branch" :: Text) ]
+        , outputParam
         ]
         [])
       readOnly
@@ -69,11 +72,38 @@ tools =
   ]
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult
-handleList ctx params = do
-  let allFlag = if getBoolParam "all" params == Just True then ["-a"] else []
-      verbose = if getBoolParam "verbose" params == Just True then ["-v"] else []
-  result <- runGit ctx (["branch"] ++ allFlag ++ verbose)
-  gitResultToToolResult result
+handleList ctx params
+  | wantsJson params = do
+      let allFlag = if getBoolParam "all" params == Just True then ["-a"] else []
+          fmt = "--format=%(refname:short)\t%(objectname:short)\t%(HEAD)\t%(upstream:short)\t%(subject)"
+      result <- runGit ctx (["branch", fmt] ++ allFlag)
+      pure $ case result of
+        Right out -> jsonResult $ object ["branches" .= parseBranchLines out]
+        Left (GitProcessError _ err) -> ToolResult [TextContent err] True
+        Left (GitParseError err)     -> ToolResult [TextContent err] True
+        Left (GitValidationError err)-> ToolResult [TextContent err] True
+        Left (GitTimeoutError secs)  -> ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+  | otherwise = do
+      let allFlag = if getBoolParam "all" params == Just True then ["-a"] else []
+          verbose = if getBoolParam "verbose" params == Just True then ["-v"] else []
+      result <- runGit ctx (["branch"] ++ allFlag ++ verbose)
+      gitResultToToolResult result
+
+parseBranchLines :: Text -> [Value]
+parseBranchLines raw =
+  [ parseBranchLine l | l <- T.lines raw, not (T.null l) ]
+
+parseBranchLine :: Text -> Value
+parseBranchLine line =
+  case T.splitOn "\t" line of
+    [name, sha, headMark, upstream, subject] -> object
+      [ "name"     .= name
+      , "sha"      .= sha
+      , "current"  .= (headMark == "*")
+      , "upstream" .= if T.null upstream then Null else toJSON upstream
+      , "subject"  .= subject
+      ]
+    _ -> object ["raw" .= line]
 
 handleCreate :: GitContext -> Maybe Value -> IO ToolResult
 handleCreate ctx params = case getTextParam "name" params of
