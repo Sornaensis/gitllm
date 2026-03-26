@@ -78,13 +78,13 @@ repoToolDefinitions :: [ToolDefinition]
 repoToolDefinitions =
   [ ToolDefinition
       "git_set_repo"
-      "Set the git repository root directory. MUST be called before any other git tool. Pass the absolute path to the repository working directory."
+      "REQUIRED FIRST CALL — Set the git repository root before using any other git tool. Pass the absolute path to the workspace or repository root directory (e.g. the folder open in your editor). All other tools will fail until this is called."
       (object
         [ "type" .= ("object" :: Text)
         , "properties" .= object
             [ "path" .= object
                 [ "type" .= ("string" :: Text)
-                , "description" .= ("Absolute path to the git repository root directory" :: Text)
+                , "description" .= ("Absolute path to the git repository root directory. Use the workspace folder path from your environment context." :: Text)
                 ]
             ]
         , "required" .= (["path"] :: [Text])

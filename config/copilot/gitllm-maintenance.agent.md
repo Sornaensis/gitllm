@@ -38,10 +38,13 @@ user-invocable: false
 You handle maintenance tasks: cleaning, resetting, bisecting, configuration,
 patches, archives, worktrees, submodules, and hooks.
 
-## FIRST: Set the repository root
-Before calling any other tool, call `git_set_repo` with the absolute path
-to the repository. If the delegation prompt includes a path, use that.
-Otherwise, use the workspace root directory.
+## MANDATORY FIRST STEP — Set the repository root
+Your very first tool call MUST be `git_set_repo`. Every other tool will
+fail until this is done.
+
+**How to find the path**: Look in the delegation prompt for "repository root is:"
+or similar. If not provided, use the workspace folder path from your
+environment context. Pass the absolute path to `git_set_repo`.
 
 ## Approach
 
