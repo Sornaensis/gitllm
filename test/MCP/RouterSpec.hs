@@ -7,14 +7,15 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
 import Data.Aeson
 import qualified Data.Aeson.KeyMap as KM
+import Data.IORef (newIORef)
 import Data.List (nub)
 import qualified Data.Text as T
 import Test.Hspec
 
 import GitLLM.MCP.Router
 import GitLLM.MCP.Types
-import GitLLM.Git.Types (GitContext(..))
-import TestHelpers (withTempGitRepo, createRepoFile, commitAll)
+import GitLLM.Git.Types (GitContext(..), ServerState(..))
+import TestHelpers (withTempServerState, createRepoFile, commitAll)
 
 spec :: Spec
 spec = do
@@ -79,26 +80,38 @@ toolDefinitionsSpec = describe "allToolDefinitions" $ do
 routingSpec :: Spec
 routingSpec = describe "routeRequest" $ do
   it "returns error for unknown tool" $ do
-    let ctx = GitContext "." Nothing
-    result <- routeRequest ctx "nonexistent_tool" Nothing
+    ref <- newIORef (Just ".")
+    let state = ServerState ref Nothing
+    result <- routeRequest state "nonexistent_tool" Nothing
     resultIsError result `shouldBe` True
     case resultContent result of
-      [TextContent t] -> t `shouldSatisfy` T.isInfixOf "Unknown tool"
-      _               -> expectationFailure "Expected single TextContent"
+      (_:TextContent t:_) -> t `shouldSatisfy` T.isInfixOf "Unknown tool"
+      _                   -> expectationFailure "Expected Unknown tool in tagged result"
 
   it "returns error with tool name for unknown tool" $ do
-    let ctx = GitContext "." Nothing
-    result <- routeRequest ctx "bogus_tool_xyz" Nothing
+    ref <- newIORef (Just ".")
+    let state = ServerState ref Nothing
+    result <- routeRequest state "bogus_tool_xyz" Nothing
     case resultContent result of
-      [TextContent t] -> t `shouldSatisfy` T.isInfixOf "bogus_tool_xyz"
-      _               -> expectationFailure "Expected error text"
+      (_:TextContent t:_) -> t `shouldSatisfy` T.isInfixOf "bogus_tool_xyz"
+      _                   -> expectationFailure "Expected error text"
+
+  it "returns error when repo not set" $ do
+    ref <- newIORef Nothing
+    let state = ServerState ref Nothing
+    result <- routeRequest state "git_status" Nothing
+    resultIsError result `shouldBe` True
+    case resultContent result of
+      [TextContent t] -> t `shouldSatisfy` T.isInfixOf "git_set_repo"
+      _               -> expectationFailure "Expected repo-not-set error"
 
   it "all registered tool names have routes (not 'Unknown tool')" $ do
-    withTempGitRepo $ \ctx -> do
+    withTempServerState $ \state ctx -> do
       createRepoFile ctx "init.txt" "init"
       commitAll ctx "initial"
-      forM_ allToolDefinitions $ \td -> do
-        result <- try (routeRequest ctx (toolName td) Nothing) :: IO (Either SomeException ToolResult)
+      let gitTools = filter (\td -> toolName td /= "git_set_repo" && toolName td /= "git_get_repo") allToolDefinitions
+      forM_ gitTools $ \td -> do
+        result <- try (routeRequest state (toolName td) Nothing) :: IO (Either SomeException ToolResult)
         case result of
           Right tr -> resultContent tr `shouldSatisfy` \cs ->
             not (any (\(TextContent t) -> T.isPrefixOf "Unknown tool: " t) cs)
@@ -108,6 +121,10 @@ routingSpec = describe "routeRequest" $ do
 toolCoverageSpec :: Spec
 toolCoverageSpec = describe "tool category coverage" $ do
   let names = map toolName allToolDefinitions
+
+  it "includes repo management tools" $ do
+    names `shouldSatisfy` elem "git_set_repo"
+    names `shouldSatisfy` elem "git_get_repo"
 
   it "includes status tools" $ do
     names `shouldSatisfy` elem "git_status"

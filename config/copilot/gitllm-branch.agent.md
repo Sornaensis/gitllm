@@ -4,6 +4,8 @@ description: >
   Use when creating, deleting, renaming, or listing branches; switching
   branches; creating, listing, or deleting tags.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_branch_list
   - gitllm/git_branch_create
   - gitllm/git_branch_delete
@@ -20,6 +22,11 @@ user-invocable: false
 # gitllm-branch — Branch & Tag Management
 
 You manage branches and tags.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 1. Use `git_branch_current` and `git_branch_list` to orient.

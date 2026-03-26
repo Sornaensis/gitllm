@@ -4,6 +4,8 @@ description: >
   Use when merging branches, rebasing, cherry-picking, resolving merge
   conflicts, or aborting/continuing in-progress merge operations.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_status
   - gitllm/git_diff
   - gitllm/git_diff_staged
@@ -26,6 +28,11 @@ user-invocable: false
 # gitllm-merge — Merge, Rebase & Conflict Resolution
 
 You handle branch integration operations and resolve conflicts.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Core Workflows
 

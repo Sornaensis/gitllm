@@ -6,9 +6,14 @@ module GitLLM.MCP.Router
   ) where
 
 import Data.Aeson
+import qualified Data.Aeson.KeyMap as KM
+import Data.IORef (readIORef, writeIORef)
 import Data.Text (Text)
+import qualified Data.Text as T
+import System.Directory (doesDirectoryExist, doesFileExist)
+import System.FilePath ((</>))
 import GitLLM.MCP.Types
-import GitLLM.Git.Types (GitContext(..))
+import GitLLM.Git.Types (GitContext(..), ServerState(..))
 
 import qualified GitLLM.Git.Tools.Status    as Status
 import qualified GitLLM.Git.Tools.Log       as Log
@@ -39,7 +44,7 @@ import qualified GitLLM.Git.Tools.Composite as Composite
 
 -- | All tool definitions registered with the server.
 allToolDefinitions :: [ToolDefinition]
-allToolDefinitions = concat
+allToolDefinitions = repoToolDefinitions ++ concat
   [ Status.tools
   , Log.tools
   , Diff.tools
@@ -68,9 +73,109 @@ allToolDefinitions = concat
   , Composite.tools
   ]
 
+-- | Tool definitions for repo root management.
+repoToolDefinitions :: [ToolDefinition]
+repoToolDefinitions =
+  [ ToolDefinition
+      "git_set_repo"
+      "Set the git repository root directory. MUST be called before any other git tool. Pass the absolute path to the repository working directory."
+      (object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= object
+            [ "path" .= object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Absolute path to the git repository root directory" :: Text)
+                ]
+            ]
+        , "required" .= (["path"] :: [Text])
+        , "additionalProperties" .= False
+        ])
+      (Just $ ToolAnnotations (Just False) (Just False) Nothing)
+  , ToolDefinition
+      "git_get_repo"
+      "Get the current git repository root directory, or an error if not yet set."
+      (object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= object []
+        , "additionalProperties" .= False
+        ])
+      (Just $ ToolAnnotations (Just True) (Just False) Nothing)
+  ]
+
 -- | Route a tools/call request to the appropriate handler.
-routeRequest :: GitContext -> Text -> Maybe Value -> IO ToolResult
-routeRequest ctx name params = case name of
+routeRequest :: ServerState -> Text -> Maybe Value -> IO ToolResult
+routeRequest state name params = case name of
+  -- Repo management tools (work without repo being set)
+  "git_set_repo" -> handleSetRepo state params
+  "git_get_repo" -> handleGetRepo state
+
+  -- All other tools require repo to be set
+  _ -> do
+    mPath <- readIORef (stateRepoPath state)
+    case mPath of
+      Nothing -> pure $ ToolResult
+        [TextContent $ "ERROR: Repository root not set. Call git_set_repo with the absolute path to the repository before using " <> name <> "."]
+        True
+      Just path -> do
+        let ctx = GitContext path (stateTimeout state)
+        result <- routeGitTool ctx name params
+        pure $ tagRepoPath path result
+
+-- | Prepend the repo root to the tool result so the LLM always knows the context.
+tagRepoPath :: FilePath -> ToolResult -> ToolResult
+tagRepoPath path (ToolResult contents isErr) =
+  let tag = TextContent ("[repo: " <> T.pack path <> "]")
+  in ToolResult (tag : contents) isErr
+
+-- | Handle git_set_repo: validate and set the repository root.
+handleSetRepo :: ServerState -> Maybe Value -> IO ToolResult
+handleSetRepo state params = case getPathParam params of
+  Nothing -> pure $ ToolResult
+    [TextContent "ERROR: git_set_repo requires a 'path' parameter with the absolute path to the git repository."]
+    True
+  Just path -> do
+    let pathStr = T.unpack path
+    -- Verify the directory exists
+    dirExists <- doesDirectoryExist pathStr
+    if not dirExists
+      then pure $ ToolResult
+        [TextContent $ "ERROR: Directory does not exist: " <> path]
+        True
+      else do
+        -- Verify it's a git repo (has .git directory or file)
+        let gitPath = pathStr </> ".git"
+        gitDirExists <- doesDirectoryExist gitPath
+        gitFileExists <- doesFileExist gitPath
+        if not (gitDirExists || gitFileExists)
+          then pure $ ToolResult
+            [TextContent $ "ERROR: Not a git repository (no .git directory): " <> path]
+            True
+          else do
+            writeIORef (stateRepoPath state) (Just pathStr)
+            pure $ ToolResult
+              [TextContent $ "Repository root set to: " <> path]
+              False
+  where
+    getPathParam (Just (Object o)) = case KM.lookup "path" o of
+      Just (String s) -> Just s
+      _               -> Nothing
+    getPathParam _ = Nothing
+
+-- | Handle git_get_repo: return the current repo root.
+handleGetRepo :: ServerState -> IO ToolResult
+handleGetRepo state = do
+  mPath <- readIORef (stateRepoPath state)
+  case mPath of
+    Nothing -> pure $ ToolResult
+      [TextContent "Repository root is not set. Call git_set_repo first."]
+      True
+    Just path -> pure $ ToolResult
+      [TextContent $ "Repository root: " <> T.pack path]
+      False
+
+-- | Route git tool calls to the appropriate handler.
+routeGitTool :: GitContext -> Text -> Maybe Value -> IO ToolResult
+routeGitTool ctx name params = case name of
   -- Status
   "git_status"            -> Status.handle ctx params
   "git_status_short"      -> Status.handleShort ctx params

@@ -4,6 +4,8 @@ description: >
   Use when stashing uncommitted changes, restoring stashed changes,
   listing stashes, showing stash contents, or dropping stashes.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_stash_push
   - gitllm/git_stash_pop
   - gitllm/git_stash_list
@@ -15,6 +17,11 @@ user-invocable: false
 # gitllm-stash — Stash Management
 
 You manage the git stash for saving and restoring uncommitted work.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 1. `git_stash_list` to see existing stashes.

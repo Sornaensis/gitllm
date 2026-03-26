@@ -10,32 +10,30 @@ import Data.Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
+import Data.IORef (newIORef)
 import Data.Text (Text)
 import qualified Data.Text as T
-import System.Directory (getCurrentDirectory)
-import System.Exit (ExitCode(..))
 import System.IO (hFlush, hSetBuffering, hSetEncoding, hIsEOF, stdin, stdout, BufferMode(..), utf8)
-import System.Process (readProcessWithExitCode)
 
 import GitLLM.MCP.Types
 import GitLLM.MCP.Protocol
 import GitLLM.MCP.Router
-import GitLLM.Git.Types (GitContext(..))
+import GitLLM.Git.Types (ServerState(..))
 
 -- | Run the MCP server on the configured transport.
+-- The server starts with no repository root set — the LLM must call
+-- git_set_repo before any other tool will work.
 runServer :: ServerConfig -> IO ()
 runServer cfg = do
-  repoPath <- case cfgRepoPath cfg of
-    Just p  -> pure p
-    Nothing -> detectRepoRoot
-  let ctx = GitContext { gitRepoPath = repoPath, gitTimeout = cfgTimeout cfg }
+  repoRef <- newIORef Nothing
+  let state = ServerState { stateRepoPath = repoRef, stateTimeout = cfgTimeout cfg }
   case cfgTransport cfg of
-    "stdio" -> runStdio cfg ctx
+    "stdio" -> runStdio cfg state
     _       -> putStrLn $ "Unsupported transport: " <> cfgTransport cfg
 
 -- | Run the server over stdin/stdout (JSON-RPC over stdio).
-runStdio :: ServerConfig -> GitContext -> IO ()
-runStdio cfg ctx = do
+runStdio :: ServerConfig -> ServerState -> IO ()
+runStdio cfg state = do
   hSetBuffering stdin  LineBuffering
   hSetBuffering stdout LineBuffering
   hSetEncoding stdin  utf8
@@ -48,12 +46,12 @@ runStdio cfg ctx = do
         then pure ()
         else do
           line <- BS8.hGetLine stdin
-          processLine cfg ctx (BL.fromStrict line)
+          processLine cfg state (BL.fromStrict line)
           loop
 
 -- | Process a single JSON-RPC line.
-processLine :: ServerConfig -> GitContext -> BL.ByteString -> IO ()
-processLine cfg ctx line
+processLine :: ServerConfig -> ServerState -> BL.ByteString -> IO ()
+processLine cfg state line
   | BL.null line = pure ()
   | otherwise = do
       case decodeRequest line of
@@ -61,7 +59,7 @@ processLine cfg ctx line
           let resp = makeError Nothing (-32700) "Parse error" (Just $ toJSON err)
           sendResponse resp
         Right req -> do
-          resp <- handleRequest cfg ctx req
+          resp <- handleRequest cfg state req
             `catch` \(e :: SomeException) ->
               pure $ internalError (rpcReqId req) (T.pack $ show e)
           sendResponse resp
@@ -74,8 +72,8 @@ sendResponse resp = do
   hFlush stdout
 
 -- | Handle a single JSON-RPC request.
-handleRequest :: ServerConfig -> GitContext -> JsonRpcRequest -> IO JsonRpcResponse
-handleRequest cfg ctx req = case rpcReqMethod req of
+handleRequest :: ServerConfig -> ServerState -> JsonRpcRequest -> IO JsonRpcResponse
+handleRequest cfg state req = case rpcReqMethod req of
 
   "initialize" ->
     pure $ makeResult (rpcReqId req) $ toJSON InitializeResult
@@ -102,7 +100,7 @@ handleRequest cfg ctx req = case rpcReqMethod req of
       Just (Object o) -> do
         case (KM.lookup "name" o, KM.lookup "arguments" o) of
           (Just (String toolName'), args) -> do
-            result <- routeRequest ctx toolName' args
+            result <- routeRequest state toolName' args
             pure $ makeResult (rpcReqId req) (toJSON result)
           _ -> pure $ invalidParams (rpcReqId req) "tools/call requires 'name' field"
       _ -> pure $ invalidParams (rpcReqId req) "params must be an object"
@@ -112,15 +110,3 @@ handleRequest cfg ctx req = case rpcReqMethod req of
 
   other ->
     pure $ methodNotFound (rpcReqId req) other
-
--- | Detect the git repository root from the current directory.
--- Runs @git rev-parse --show-toplevel@ and falls back to cwd on failure.
-detectRepoRoot :: IO FilePath
-detectRepoRoot = do
-  cwd <- getCurrentDirectory
-  (exitCode, out, _) <- readProcessWithExitCode "git" ["rev-parse", "--show-toplevel"] ""
-  pure $ case exitCode of
-    ExitSuccess ->
-      let trimmed = filter (/= '\n') out
-      in if null trimmed then cwd else trimmed
-    _ -> cwd

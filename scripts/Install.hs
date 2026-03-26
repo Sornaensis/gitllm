@@ -52,7 +52,6 @@ data InstallOpts = InstallOpts
   , optNoCopilotAgent :: Bool
   , optConfigDir     :: FilePath
   , optUninstall     :: Bool
-  , optWorkspace     :: Maybe FilePath
   }
 
 installOptsParser :: Parser InstallOpts
@@ -102,12 +101,6 @@ installOptsParser = InstallOpts
       ( long "uninstall"
      <> help "Remove gitllm binary, MCP configs, and agent files"
       )
-  <*> optional (strOption
-      ( long "workspace"
-     <> short 'w'
-     <> metavar "DIR"
-     <> help "Install into a VS Code workspace (.vscode/mcp.json + .github/copilot/ prompts)"
-      ))
 
 -- ---------------------------------------------------------------------------
 -- Platform detection
@@ -473,106 +466,6 @@ installCopilotAgent opts = do
   success "Copilot agent definitions installed"
 
 -- ---------------------------------------------------------------------------
--- Workspace-level installation
--- ---------------------------------------------------------------------------
-
--- | Install gitllm MCP config into a VS Code workspace.
--- Writes .vscode/mcp.json with the server entry.
-installWorkspaceMcp :: InstallOpts -> FilePath -> FilePath -> IO ()
-installWorkspaceMcp opts wsDir binaryAbsPath = do
-  let configPath = wsDir </> ".vscode" </> "mcp.json"
-      templatePath = optConfigDir opts </> "copilot" </> "mcp.json"
-
-  logInfo "Configuring workspace MCP:"
-  logInfo $ "  config:   " ++ configPath
-  logInfo $ "  template: " ++ templatePath
-
-  unless (optDryRun opts) $ do
-    entry <- readMcpTemplate templatePath binaryAbsPath
-    createDirectoryIfMissing True (wsDir </> ".vscode")
-
-    existing <- doesFileExist configPath
-    config <- if existing
-      then do
-        contents <- BS.readFile configPath
-        if BS.null contents
-          then pure (object [])
-          else case eitherDecodeStrict contents of
-            Right val -> pure val
-            Left _    -> do
-              hPutStrLn stderr "WARNING: Could not parse existing .vscode/mcp.json"
-              hPutStrLn stderr "         Existing content will be replaced."
-              pure (object [])
-      else pure (object [])
-
-    let updated = mergeCopilotConfig config entry
-    BL.writeFile configPath (encode updated)
-
-  success "Workspace MCP configured"
-
--- | Install Copilot prompt files into the workspace.
--- Writes to .github/copilot/ in the workspace.
-installWorkspacePrompts :: InstallOpts -> FilePath -> IO ()
-installWorkspacePrompts opts wsDir = do
-  let destDir = wsDir </> ".github" </> "copilot"
-      srcDir  = optConfigDir opts </> "copilot"
-      promptFiles = [ "gitllm.agent.md"
-                    , "gitllm-status.agent.md"
-                    , "gitllm-history.agent.md"
-                    , "gitllm-search.agent.md"
-                    , "gitllm-branch.agent.md"
-                    , "gitllm-staging.agent.md"
-                    , "gitllm-merge.agent.md"
-                    , "gitllm-remote.agent.md"
-                    , "gitllm-stash.agent.md"
-                    , "gitllm-maintenance.agent.md"
-                    ]
-
-  logInfo "Installing workspace prompt files:"
-
-  unless (optDryRun opts) $
-    createDirectoryIfMissing True destDir
-
-  mapM_ (\f -> do
-    let srcPath  = srcDir </> f
-        destPath = destDir </> f
-    logInfo $ "  " ++ srcPath ++ " -> " ++ destPath
-    srcExists <- doesFileExist srcPath
-    if srcExists
-      then unless (optDryRun opts) $ copyFile srcPath destPath
-      else hPutStrLn stderr $ "  WARNING: not found: " ++ srcPath
-    ) promptFiles
-
-  success "Workspace prompt files installed"
-
--- | Remove gitllm MCP config from a workspace.
-uninstallWorkspaceMcp :: InstallOpts -> FilePath -> IO ()
-uninstallWorkspaceMcp opts wsDir = do
-  let configPath = wsDir </> ".vscode" </> "mcp.json"
-  logInfo $ "Removing gitllm from workspace MCP config: " ++ configPath
-  removeJsonKey opts configPath "servers" "gitllm"
-  success "Workspace MCP entry removed"
-
--- | Remove Copilot prompt files from a workspace.
-uninstallWorkspacePrompts :: InstallOpts -> FilePath -> IO ()
-uninstallWorkspacePrompts opts wsDir = do
-  let destDir = wsDir </> ".github" </> "copilot"
-      files = [ "gitllm.agent.md"
-              , "gitllm-status.agent.md"
-              , "gitllm-history.agent.md"
-              , "gitllm-search.agent.md"
-              , "gitllm-branch.agent.md"
-              , "gitllm-staging.agent.md"
-              , "gitllm-merge.agent.md"
-              , "gitllm-remote.agent.md"
-              , "gitllm-stash.agent.md"
-              , "gitllm-maintenance.agent.md"
-              ]
-  logInfo "Removing workspace prompt files:"
-  mapM_ (removeIfExists opts destDir) files
-  success "Workspace prompt files removed"
-
--- ---------------------------------------------------------------------------
 -- Uninstall
 -- ---------------------------------------------------------------------------
 
@@ -695,89 +588,59 @@ main = do
     logInfo "Mode:        DRY RUN (no changes will be made)"
   when (optUninstall opts) $
     logInfo "Mode:        UNINSTALL"
-  case optWorkspace opts of
-    Just ws -> logInfo $ "Workspace:   " ++ ws
-    Nothing -> pure ()
   putStrLn ""
 
-  case optWorkspace opts of
-    Just wsDir ->
-      -- Workspace mode: only touch .vscode/mcp.json and .github/copilot/
-      if optUninstall opts
-        then do
-          putStrLn ""
-          uninstallWorkspaceMcp opts wsDir
-          putStrLn ""
-          uninstallWorkspacePrompts opts wsDir
-          putStrLn ""
-          success "Workspace uninstall complete!"
-        else do
-          putStrLn ""
-          installWorkspaceMcp opts wsDir binaryAbsPath
-          putStrLn ""
-          installWorkspacePrompts opts wsDir
-          putStrLn ""
-          success "Workspace installation complete!"
-          logInfo ""
-          logInfo "Next steps:"
-          logInfo "  1. Open this workspace in VS Code"
-          logInfo "  2. The MCP server will start automatically"
-          logInfo "  3. Verify by asking your AI assistant to run 'git_status'"
-          logInfo ""
+  if optUninstall opts
+    then do
+      unless (optConfigOnly opts) $
+        uninstallBinary opts actualBinDir
 
-    Nothing -> do
-      -- Global mode: install binary + global configs
-      if optUninstall opts
-        then do
-          unless (optConfigOnly opts) $
-            uninstallBinary opts actualBinDir
+      unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
+        putStrLn ""
+        uninstallClaudeMcp opts
 
-          unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
-            putStrLn ""
-            uninstallClaudeMcp opts
+      unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
+        putStrLn ""
+        uninstallCopilotMcp opts
 
-          unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
-            putStrLn ""
-            uninstallCopilotMcp opts
+      unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
+        putStrLn ""
+        uninstallClaudeAgent opts
 
-          unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
-            putStrLn ""
-            uninstallClaudeAgent opts
+      unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
+        putStrLn ""
+        uninstallCopilotAgent opts
 
-          unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
-            putStrLn ""
-            uninstallCopilotAgent opts
+      putStrLn ""
+      success "Uninstall complete!"
 
-          putStrLn ""
-          success "Uninstall complete!"
+    else do
+      unless (optConfigOnly opts) $
+        installBinary opts actualBinDir
 
-        else do
-          unless (optConfigOnly opts) $
-            installBinary opts actualBinDir
+      unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
+        putStrLn ""
+        installClaudeMcp opts binaryAbsPath
 
-          unless (optBinaryOnly opts || optNoClaudeMcp opts) $ do
-            putStrLn ""
-            installClaudeMcp opts binaryAbsPath
+      unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
+        putStrLn ""
+        installCopilotMcp opts binaryAbsPath
 
-          unless (optBinaryOnly opts || optNoCopilotMcp opts) $ do
-            putStrLn ""
-            installCopilotMcp opts binaryAbsPath
+      unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
+        putStrLn ""
+        installClaudeAgent opts
 
-          unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
-            putStrLn ""
-            installClaudeAgent opts
+      unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
+        putStrLn ""
+        installCopilotAgent opts
 
-          unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
-            putStrLn ""
-            installCopilotAgent opts
-
-          putStrLn ""
-          success "Installation complete!"
-          logInfo ""
-          logInfo "Next steps:"
-          logInfo "  1. Restart Claude Code / VS Code to pick up the new MCP server"
-          logInfo "  2. Verify by asking your AI assistant to run 'git_status'"
-          logInfo ""
+      putStrLn ""
+      success "Installation complete!"
+      logInfo ""
+      logInfo "Next steps:"
+      logInfo "  1. Restart Claude Code / VS Code to pick up the new MCP server"
+      logInfo "  2. The LLM must call git_set_repo with the repository path before using git tools"
+      logInfo ""
 
   where
     optsInfo = info (installOptsParser <**> helper)

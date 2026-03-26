@@ -5,6 +5,8 @@ description: >
   or diffs, listing tracked files, inspecting git objects, or resolving
   refs. Read-only.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_grep
   - gitllm/git_log_search
   - gitllm/git_ls_files
@@ -18,6 +20,11 @@ user-invocable: false
 # gitllm-search — Code & Commit Search
 
 You search code, commit messages, and git objects. You are strictly read-only.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 1. Use `git_grep` to search content in the working tree.

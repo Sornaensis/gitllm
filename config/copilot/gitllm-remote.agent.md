@@ -4,6 +4,8 @@ description: >
   Use when fetching from remotes, pulling, pushing, or managing remote
   configurations (add, remove, list).
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_remote_list
   - gitllm/git_remote_add
   - gitllm/git_remote_remove
@@ -16,6 +18,11 @@ user-invocable: false
 # gitllm-remote — Remote Operations
 
 You manage remotes and synchronize with upstream repositories.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 1. `git_remote_list` to see configured remotes.

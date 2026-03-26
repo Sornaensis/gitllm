@@ -5,6 +5,8 @@ description: >
   viewing file history, checking blame or line-level authorship,
   viewing the reflog, or exploring the commit graph. Read-only.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_log
   - gitllm/git_log_oneline
   - gitllm/git_log_file
@@ -19,6 +21,11 @@ user-invocable: false
 
 You explore commit history, inspect individual commits, and trace
 line-level authorship. You are strictly read-only.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 1. Use `git_log` or `git_log_oneline` for commit listings.

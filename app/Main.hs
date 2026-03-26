@@ -7,8 +7,7 @@ import GitLLM.MCP.Types (ServerConfig(..))
 import Options.Applicative
 
 data Opts = Opts
-  { optRepoPath :: Maybe FilePath
-  , optTransport :: Transport
+  { optTransport :: Transport
   , optTimeout :: Maybe Int
   }
 
@@ -16,13 +15,7 @@ data Transport = StdioTransport | TcpTransport Int
 
 optsParser :: Parser Opts
 optsParser = Opts
-  <$> optional (strOption
-        ( long "repo"
-       <> short 'r'
-       <> metavar "PATH"
-       <> help "Path to the git repository (defaults to current directory)"
-        ))
-  <*> transportParser
+  <$> transportParser
   <*> optional (option auto
         ( long "timeout"
        <> short 't'
@@ -44,8 +37,7 @@ main :: IO ()
 main = do
   opts <- execParser optsInfo
   let cfg = ServerConfig
-        { cfgRepoPath  = optRepoPath opts
-        , cfgTransport = case optTransport opts of
+        { cfgTransport = case optTransport opts of
             StdioTransport  -> "stdio"
             TcpTransport p  -> "tcp:" <> show p
         , cfgServerName = "gitllm"

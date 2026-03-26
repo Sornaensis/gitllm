@@ -5,6 +5,7 @@ module Git.ToolsIntegrationSpec (spec) where
 
 import Control.Monad (void)
 import Data.Aeson
+import Data.IORef (newIORef)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Hspec
@@ -1033,24 +1034,47 @@ pathValidationSpec = describe "Path validation" $ around withTempGitRepo $ do
 -- Router integration
 -- =========================================================================
 routerIntegrationSpec :: Spec
-routerIntegrationSpec = describe "Router (end-to-end)" $ around withTempGitRepo $ do
-  it "routes git_status" $ \ctx -> do
-    result <- routeRequest ctx "git_status" Nothing
-    resultIsError result `shouldBe` False
+routerIntegrationSpec = describe "Router (end-to-end)" $ do
+  it "routes git_status" $ do
+    withTempServerState $ \state ctx -> do
+      result <- routeRequest state "git_status" Nothing
+      resultIsError result `shouldBe` False
 
-  it "routes git_branch_current after commit" $ \ctx -> do
-    createRepoFile ctx "init.txt" "init"
-    commitAll ctx "initial"
-    result <- routeRequest ctx "git_branch_current" Nothing
-    resultIsError result `shouldBe` False
+  it "routes git_branch_current after commit" $ do
+    withTempServerState $ \state ctx -> do
+      createRepoFile ctx "init.txt" "init"
+      commitAll ctx "initial"
+      result <- routeRequest state "git_branch_current" Nothing
+      resultIsError result `shouldBe` False
 
-  it "routes git_config_list" $ \ctx -> do
-    result <- routeRequest ctx "git_config_list" Nothing
-    resultIsError result `shouldBe` False
+  it "routes git_config_list" $ do
+    withTempServerState $ \state _ctx -> do
+      result <- routeRequest state "git_config_list" Nothing
+      resultIsError result `shouldBe` False
 
-  it "routes git_remote_list" $ \ctx -> do
-    result <- routeRequest ctx "git_remote_list" Nothing
-    resultIsError result `shouldBe` False
+  it "routes git_remote_list" $ do
+    withTempServerState $ \state _ctx -> do
+      result <- routeRequest state "git_remote_list" Nothing
+      resultIsError result `shouldBe` False
+
+  it "fails when repo not set" $ do
+    ref <- newIORef Nothing
+    let state = ServerState ref Nothing
+    result <- routeRequest state "git_status" Nothing
+    resultIsError result `shouldBe` True
+    case resultContent result of
+      [TextContent t] -> t `shouldSatisfy` T.isInfixOf "git_set_repo"
+      _               -> expectationFailure "Expected repo-not-set error"
+
+  it "git_set_repo then git_status works" $ do
+    withTempGitRepo $ \ctx -> do
+      ref <- newIORef Nothing
+      let state = ServerState ref Nothing
+          params = Just $ object ["path" .= T.pack (gitRepoPath ctx)]
+      setResult <- routeRequest state "git_set_repo" params
+      resultIsError setResult `shouldBe` False
+      statusResult <- routeRequest state "git_status" Nothing
+      resultIsError statusResult `shouldBe` False
 
 -- =========================================================================
 -- Composite Operations

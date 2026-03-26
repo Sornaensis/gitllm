@@ -6,6 +6,8 @@ description: >
   patches, creating archives, managing worktrees or submodules, or
   listing hooks.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_clean
   - gitllm/git_clean_dry_run
   - gitllm/git_reset
@@ -35,6 +37,11 @@ user-invocable: false
 
 You handle maintenance tasks: cleaning, resetting, bisecting, configuration,
 patches, archives, worktrees, submodules, and hooks.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 

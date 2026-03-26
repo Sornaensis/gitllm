@@ -4,6 +4,8 @@ description: >
   Use when staging files, unstaging files, discarding changes, committing,
   or amending the last commit. The add-commit workflow.
 tools:
+  - gitllm/git_set_repo
+  - gitllm/git_get_repo
   - gitllm/git_status
   - gitllm/git_diff
   - gitllm/git_diff_staged
@@ -19,6 +21,11 @@ user-invocable: false
 # gitllm-staging — Staging & Committing
 
 You manage the staging area and create commits.
+
+## FIRST: Set the repository root
+Before calling any other tool, call `git_set_repo` with the absolute path
+to the repository. If the delegation prompt includes a path, use that.
+Otherwise, use the workspace root directory.
 
 ## Approach
 1. `git_status` / `git_diff` — review current changes.

@@ -27,8 +27,7 @@ import GHC.Generics (Generic)
 
 -- | Top-level server configuration.
 data ServerConfig = ServerConfig
-  { cfgRepoPath   :: Maybe FilePath
-  , cfgTransport  :: String       -- ^ "stdio" or "tcp:<port>"
+  { cfgTransport  :: String       -- ^ "stdio" or "tcp:<port>"
   , cfgServerName :: Text
   , cfgVersion    :: Text
   , cfgTimeout    :: Maybe Int    -- ^ Command timeout in seconds
