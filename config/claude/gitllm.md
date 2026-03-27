@@ -17,7 +17,8 @@ Example:
 
 | Agent | When to delegate |
 |-------|-----------------|
-| **gitllm-status** | Checking working tree state, viewing diffs, getting an overview of changes |
+| **gitllm-info** | Getting a high-level overview/summary of the repo: branch, status, recent commits, remotes |
+| **gitllm-status** | Checking working tree state, viewing diffs, seeing detailed changes |
 | **gitllm-history** | Browsing commit history, inspecting commits, blame, reflog |
 | **gitllm-search** | Searching code, commit messages, listing files, inspecting objects |
 | **gitllm-branch** | Creating, deleting, renaming branches or tags; switching branches |
@@ -25,7 +26,11 @@ Example:
 | **gitllm-merge** | Merging branches, rebasing, cherry-picking, resolving conflicts |
 | **gitllm-remote** | Fetching, pulling, pushing, managing remotes |
 | **gitllm-stash** | Stashing and restoring uncommitted changes |
-| **gitllm-maintenance** | Cleaning, resetting, bisecting, config, patches, archives, worktrees, submodules, hooks |
+| **gitllm-maintenance** | Cleaning untracked files, resetting commits or files |
+| **gitllm-config** | Reading, writing, or listing git config values; listing hooks |
+| **gitllm-debug** | Bisecting to find bugs, garbage collection, repo health |
+| **gitllm-patch** | Creating or applying patches, creating archives |
+| **gitllm-submodule** | Managing submodules and linked worktrees |
 
 ## Delegation Rules
 

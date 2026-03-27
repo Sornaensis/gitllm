@@ -9,6 +9,7 @@ tools:
   - agent
 agents:
   - gitllm-status
+  - gitllm-info
   - gitllm-history
   - gitllm-search
   - gitllm-branch
@@ -17,6 +18,10 @@ agents:
   - gitllm-remote
   - gitllm-stash
   - gitllm-maintenance
+  - gitllm-config
+  - gitllm-debug
+  - gitllm-patch
+  - gitllm-submodule
 ---
 
 # gitllm — Git Operations Orchestrator
@@ -56,7 +61,8 @@ Use the `agent` tool to invoke a sub-agent. Example:
 
 | Agent | Route to when the user wants to... |
 |-------|-----------------------------------|
-| **gitllm-status** | Check working tree state, view diffs, see an overview of changes |
+| **gitllm-info** | Get a high-level overview/summary of the repo: branch, status, recent commits, remotes |
+| **gitllm-status** | Check working tree state, view diffs, see detailed changes |
 | **gitllm-history** | Browse commit history, inspect commits, blame, reflog |
 | **gitllm-search** | Search code content, commit messages, list files, inspect git objects |
 | **gitllm-branch** | Create, delete, rename, or switch branches or tags |
@@ -64,7 +70,11 @@ Use the `agent` tool to invoke a sub-agent. Example:
 | **gitllm-merge** | Merge branches, rebase, cherry-pick, resolve conflicts |
 | **gitllm-remote** | Fetch, pull, push, manage remotes |
 | **gitllm-stash** | Stash or restore uncommitted changes |
-| **gitllm-maintenance** | Clean, reset, bisect, configure git, create patches/archives, manage worktrees/submodules/hooks |
+| **gitllm-maintenance** | Clean untracked files, reset commits or files |
+| **gitllm-config** | Read, write, or list git config values; list hooks |
+| **gitllm-debug** | Bisect to find bugs, garbage collection, repo health |
+| **gitllm-patch** | Create or apply patches, create archives |
+| **gitllm-submodule** | Manage submodules and linked worktrees |
 
 ## Multi-step tasks
 

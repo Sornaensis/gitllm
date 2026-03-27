@@ -415,6 +415,7 @@ installClaudeAgent opts = do
   let srcDir = optConfigDir opts </> "claude"
       agentFiles = [ "gitllm.md"
                      , "gitllm-status.md"
+                     , "gitllm-info.md"
                      , "gitllm-history.md"
                      , "gitllm-search.md"
                      , "gitllm-branch.md"
@@ -423,6 +424,10 @@ installClaudeAgent opts = do
                      , "gitllm-remote.md"
                      , "gitllm-stash.md"
                      , "gitllm-maintenance.md"
+                     , "gitllm-config.md"
+                     , "gitllm-debug.md"
+                     , "gitllm-patch.md"
+                     , "gitllm-submodule.md"
                      ]
 
   logInfo "Installing Claude agent instructions:"
@@ -452,6 +457,7 @@ installCopilotAgent opts = do
   let srcDir = optConfigDir opts </> "copilot"
       agentFiles = [ "gitllm.agent.md"
                      , "gitllm-status.agent.md"
+                     , "gitllm-info.agent.md"
                      , "gitllm-history.agent.md"
                      , "gitllm-search.agent.md"
                      , "gitllm-branch.agent.md"
@@ -460,6 +466,10 @@ installCopilotAgent opts = do
                      , "gitllm-remote.agent.md"
                      , "gitllm-stash.agent.md"
                      , "gitllm-maintenance.agent.md"
+                     , "gitllm-config.agent.md"
+                     , "gitllm-debug.agent.md"
+                     , "gitllm-patch.agent.md"
+                     , "gitllm-submodule.agent.md"
                      ]
 
   logInfo "Installing Copilot agent definitions:"
@@ -535,6 +545,7 @@ uninstallClaudeAgent opts = do
   destDir <- claudeAgentDir
   let files = [ "gitllm.md"
               , "gitllm-status.md"
+              , "gitllm-info.md"
               , "gitllm-history.md"
               , "gitllm-search.md"
               , "gitllm-branch.md"
@@ -543,6 +554,10 @@ uninstallClaudeAgent opts = do
               , "gitllm-remote.md"
               , "gitllm-stash.md"
               , "gitllm-maintenance.md"
+              , "gitllm-config.md"
+              , "gitllm-debug.md"
+              , "gitllm-patch.md"
+              , "gitllm-submodule.md"
               , "gitllm-ops.md"
               ]
   logInfo "Removing Claude agent instructions:"
@@ -555,6 +570,7 @@ uninstallCopilotAgent opts = do
   destDir <- vscodePromptsDir
   let files = [ "gitllm.agent.md"
               , "gitllm-status.agent.md"
+              , "gitllm-info.agent.md"
               , "gitllm-history.agent.md"
               , "gitllm-search.agent.md"
               , "gitllm-branch.agent.md"
@@ -563,6 +579,10 @@ uninstallCopilotAgent opts = do
               , "gitllm-remote.agent.md"
               , "gitllm-stash.agent.md"
               , "gitllm-maintenance.agent.md"
+              , "gitllm-config.agent.md"
+              , "gitllm-debug.agent.md"
+              , "gitllm-patch.agent.md"
+              , "gitllm-submodule.agent.md"
               ]
   logInfo "Removing Copilot prompt files:"
   mapM_ (removeIfExists opts destDir) files
