@@ -19,6 +19,9 @@ tools:
   - gitllm/git_notes_list
   - gitllm/git_notes_add
   - gitllm/git_notes_show
+  - gitllm/git_branch_contains
+  - gitllm/git_merge_base
+  - gitllm/git_name_rev
 user-invocable: false
 ---
 
@@ -45,6 +48,9 @@ environment context. Pass the absolute path to `git_set_repo`.
 7. Use `git_shortlog` for author contribution summaries.
 8. Use `git_describe` to find the nearest tag for a commit.
 9. Use `git_notes_list` / `git_notes_show` / `git_notes_add` for commit notes.
+10. Use `git_branch_contains` to find which branches include a specific commit.
+11. Use `git_merge_base` to find common ancestors between refs, or check ancestry.
+12. Use `git_name_rev` to find the nearest symbolic name for a commit.
 
 ## Constraints
 - ONLY use the tools listed above.

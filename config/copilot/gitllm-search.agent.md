@@ -14,6 +14,7 @@ tools:
   - gitllm/git_cat_file
   - gitllm/git_rev_parse
   - gitllm/git_count_objects
+  - gitllm/git_name_rev
 user-invocable: false
 ---
 
@@ -37,6 +38,7 @@ environment context. Pass the absolute path to `git_set_repo`.
 5. Use `git_cat_file` to inspect raw git object content.
 6. Use `git_rev_parse` to resolve refs, abbreviations, or expressions.
 7. Use `git_count_objects` for repository size information.
+8. Use `git_name_rev` to find the nearest symbolic name for a commit SHA.
 
 ## Constraints
 - ONLY use the tools listed above.

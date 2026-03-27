@@ -263,6 +263,7 @@ routeGitTool ctx name params = case name of
   "git_branch_current"    -> Branch.handleCurrent ctx params
   "git_checkout"          -> Branch.handleCheckout ctx params
   "git_switch"            -> Branch.handleSwitch ctx params
+  "git_branch_contains"   -> Branch.handleContains ctx params
   -- Commit
   "git_commit"            -> Commit.handle ctx params
   "git_commit_amend"      -> Commit.handleAmend ctx params
@@ -358,6 +359,7 @@ routeGitTool ctx name params = case name of
   "git_notes_list"        -> Inspect.handleNotesList ctx params
   "git_notes_add"         -> Inspect.handleNotesAdd ctx params
   "git_notes_show"        -> Inspect.handleNotesShow ctx params
+  "git_name_rev"          -> Inspect.handleNameRev ctx params
   -- Composite operations
   "git_branch_cleanup"    -> Composite.handleBranchCleanup ctx params
   "git_sync_fork"         -> Composite.handleSyncFork ctx params

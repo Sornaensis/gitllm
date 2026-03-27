@@ -6,6 +6,7 @@ module GitLLM.Git.Tools.Inspect
   , handleRevParse, handleCountObjects
   , handleDescribe
   , handleNotesList, handleNotesAdd, handleNotesShow
+  , handleNameRev
   ) where
 
 import Data.Aeson
@@ -91,6 +92,15 @@ tools =
         [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Object to show note for (default: HEAD)" :: Text) ] ]
         [])
       readOnly
+  , mkToolDefA "git_name_rev"
+      "Find a symbolic name for a given rev. Shows the nearest ref-relative name (e.g. 'master~3', 'tags/v1.0~2'). Useful for identifying which branch or tag a commit is near"
+      (mkSchema
+        [ "commit" .= object [ "type" .= ("string" :: Text), "description" .= ("Commit SHA to name" :: Text) ]
+        , "refs" .= object [ "type" .= ("string" :: Text), "description" .= ("Only use refs matching this pattern (e.g. 'refs/heads/*' for branches only)" :: Text) ]
+        , "no_undefined" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Error if a name cannot be found instead of printing 'undefined'" :: Text) ]
+        ]
+        ["commit"])
+      readOnly
   ]
 
 handleCatFile :: GitContext -> Maybe Value -> IO ToolResult
@@ -166,3 +176,12 @@ handleNotesShow ctx params = do
   let refArg = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
   result <- runGit ctx (["notes", "show"] ++ refArg)
   gitResultToToolResult result
+
+handleNameRev :: GitContext -> Maybe Value -> IO ToolResult
+handleNameRev ctx params = case getTextParam "commit" params of
+  Nothing -> pure $ ToolResult [TextContent "Missing required parameter: commit"] True
+  Just commit -> do
+    let refsFlag = maybe [] (\r -> ["--refs", textArg r]) (getTextParam "refs" params)
+        noUndefFlag = if getBoolParam "no_undefined" params == Just True then ["--no-undefined"] else []
+    result <- runGit ctx (["name-rev"] ++ refsFlag ++ noUndefFlag ++ [textArg commit])
+    gitResultToToolResult result

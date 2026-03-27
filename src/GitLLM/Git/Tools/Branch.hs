@@ -3,6 +3,7 @@
 module GitLLM.Git.Tools.Branch
   ( tools, handleList, handleCreate, handleDelete, handleRename
   , handleCurrent, handleCheckout, handleSwitch
+  , handleContains
   , parseBranchLines
   ) where
 
@@ -69,6 +70,15 @@ tools =
         ]
         ["branch"])
       mutating
+  , mkToolDefA "git_branch_contains"
+      "List branches that contain a specific commit. Useful for finding which branches have a given commit in their history"
+      (mkSchema
+        [ "commit" .= object [ "type" .= ("string" :: Text), "description" .= ("Commit SHA or ref to check (default: HEAD)" :: Text) ]
+        , "all" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Include remote-tracking branches" :: Text) ]
+        , outputParam
+        ]
+        [])
+      readOnly
   ]
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult
@@ -149,3 +159,35 @@ handleSwitch ctx params = case getTextParam "branch" params of
     let createFlag = if getBoolParam "create" params == Just True then ["-c"] else []
     result <- runGit ctx (["switch"] ++ createFlag ++ [textArg branch])
     gitResultToToolResult result
+
+handleContains :: GitContext -> Maybe Value -> IO ToolResult
+handleContains ctx params
+  | wantsJson params = do
+      let commitArg = maybe [] (\c -> [textArg c]) (getTextParam "commit" params)
+          allFlag = if getBoolParam "all" params == Just True then ["-a"] else []
+          fmt = "--format=%(refname:short)\t%(objectname:short)"
+      result <- runGit ctx (["branch", "--contains"] ++ commitArg ++ allFlag ++ [fmt])
+      pure $ case result of
+        Right out -> jsonResult $ object ["branches" .= parseBranchContainsLines out]
+        Left (GitProcessError _ err) -> ToolResult [TextContent err] True
+        Left (GitParseError err)     -> ToolResult [TextContent err] True
+        Left (GitValidationError err)-> ToolResult [TextContent err] True
+        Left (GitTimeoutError secs)  -> ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+  | otherwise = do
+      let commitArg = maybe [] (\c -> [textArg c]) (getTextParam "commit" params)
+          allFlag = if getBoolParam "all" params == Just True then ["-a"] else []
+      result <- runGit ctx (["branch", "--contains"] ++ commitArg ++ allFlag)
+      gitResultToToolResult result
+
+parseBranchContainsLines :: Text -> [Value]
+parseBranchContainsLines raw =
+  [ parseBranchContainsLine l | l <- T.lines raw, not (T.null l) ]
+
+parseBranchContainsLine :: Text -> Value
+parseBranchContainsLine line =
+  case T.splitOn "\t" line of
+    [name, sha] -> object
+      [ "name" .= T.strip name
+      , "sha"  .= T.strip sha
+      ]
+    _ -> object ["name" .= T.strip line]

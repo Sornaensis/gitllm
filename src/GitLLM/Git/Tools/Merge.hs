@@ -30,10 +30,11 @@ tools =
       (mkSchema [] [])
       readOnly
   , mkToolDefA "git_merge_base"
-      "Find the best common ancestor (merge base) between two commits or branches"
+      "Find the best common ancestor (merge base) between two commits or branches. With is_ancestor=true, checks if ref1 is an ancestor of ref2 (exit 0 = yes, error = no)"
       (mkSchema
         [ "ref1" .= object [ "type" .= ("string" :: Text), "description" .= ("First ref (branch, commit, tag)" :: Text) ]
         , "ref2" .= object [ "type" .= ("string" :: Text), "description" .= ("Second ref (branch, commit, tag)" :: Text) ]
+        , "is_ancestor" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Check if ref1 is an ancestor of ref2 instead of finding merge base" :: Text) ]
         ]
         ["ref1", "ref2"])
       readOnly
@@ -62,7 +63,14 @@ handleStatus ctx _ = do
 handleMergeBase :: GitContext -> Maybe Value -> IO ToolResult
 handleMergeBase ctx params =
   case (getTextParam "ref1" params, getTextParam "ref2" params) of
-    (Just r1, Just r2) -> do
-      result <- runGit ctx ["merge-base", textArg r1, textArg r2]
-      gitResultToToolResult result
+    (Just r1, Just r2)
+      | getBoolParam "is_ancestor" params == Just True -> do
+          result <- runGit ctx ["merge-base", "--is-ancestor", textArg r1, textArg r2]
+          case result of
+            Right _ -> pure $ ToolResult [TextContent $ r1 <> " is an ancestor of " <> r2] False
+            Left (GitProcessError 1 _) -> pure $ ToolResult [TextContent $ r1 <> " is NOT an ancestor of " <> r2] False
+            Left err -> gitResultToToolResult (Left err)
+      | otherwise -> do
+          result <- runGit ctx ["merge-base", textArg r1, textArg r2]
+          gitResultToToolResult result
     _ -> pure $ ToolResult [TextContent "Missing required parameters: ref1, ref2"] True

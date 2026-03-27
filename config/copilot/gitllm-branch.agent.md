@@ -13,6 +13,7 @@ tools:
   - gitllm/git_branch_current
   - gitllm/git_checkout
   - gitllm/git_switch
+  - gitllm/git_branch_contains
   - gitllm/git_tag_list
   - gitllm/git_tag_create
   - gitllm/git_tag_delete
@@ -38,6 +39,7 @@ environment context. Pass the absolute path to `git_set_repo`.
 3. Use `git_branch_create` / `git_branch_delete` / `git_branch_rename` for branch lifecycle.
 4. Use `git_checkout` or `git_switch` to change branches.
 5. Use `git_tag_list` / `git_tag_create` / `git_tag_delete` for tags.
+6. Use `git_branch_contains` to find which branches include a specific commit.
 
 ## Constraints
 - Confirm with the user before deleting branches or tags.
