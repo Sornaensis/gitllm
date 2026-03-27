@@ -16,6 +16,7 @@ tools:
   - gitllm/git_tag_list
   - gitllm/git_tag_create
   - gitllm/git_tag_delete
+  - gitllm/git_base_branch
 user-invocable: false
 ---
 
@@ -33,9 +34,10 @@ environment context. Pass the absolute path to `git_set_repo`.
 
 ## Approach
 1. Use `git_branch_current` and `git_branch_list` to orient.
-2. Use `git_branch_create` / `git_branch_delete` / `git_branch_rename` for branch lifecycle.
-3. Use `git_checkout` or `git_switch` to change branches.
-4. Use `git_tag_list` / `git_tag_create` / `git_tag_delete` for tags.
+2. Use `git_base_branch` to detect the default branch (main/master/develop).
+3. Use `git_branch_create` / `git_branch_delete` / `git_branch_rename` for branch lifecycle.
+4. Use `git_checkout` or `git_switch` to change branches.
+5. Use `git_tag_list` / `git_tag_create` / `git_tag_delete` for tags.
 
 ## Constraints
 - Confirm with the user before deleting branches or tags.

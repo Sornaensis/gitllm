@@ -4,6 +4,8 @@ module GitLLM.Git.Tools.Inspect
   ( tools
   , handleCatFile, handleLsFiles, handleLsTree
   , handleRevParse, handleCountObjects
+  , handleDescribe
+  , handleNotesList, handleNotesAdd, handleNotesShow
   ) where
 
 import Data.Aeson
@@ -57,6 +59,38 @@ tools =
         [ "verbose" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show detailed breakdown" :: Text) ] ]
         [])
       readOnly
+  , mkToolDefA "git_describe"
+      "Find the most recent tag reachable from a commit. Useful for version identification"
+      (mkSchema
+        [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Commit to describe (default: HEAD)" :: Text) ]
+        , "all" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Use any ref, not just annotated tags" :: Text) ]
+        , "tags" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Use any tag, including lightweight tags" :: Text) ]
+        , "long" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Always output the long format" :: Text) ]
+        , "abbrev" .= object [ "type" .= ("integer" :: Text), "description" .= ("Number of hex digits for the abbreviated object name" :: Text) ]
+        ]
+        [])
+      readOnly
+  , mkToolDefA "git_notes_list"
+      "List all notes refs or notes for a given object"
+      (mkSchema
+        [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Object to list notes for (default: list all)" :: Text) ] ]
+        [])
+      readOnly
+  , mkToolDefA "git_notes_add"
+      "Add a note to an object (commit). Overwrites existing note if force is set"
+      (mkSchema
+        [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Object to annotate (default: HEAD)" :: Text) ]
+        , "message" .= object [ "type" .= ("string" :: Text), "description" .= ("Note message" :: Text) ]
+        , "force" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Overwrite existing note (default: false)" :: Text) ]
+        ]
+        ["message"])
+      mutating
+  , mkToolDefA "git_notes_show"
+      "Show the note attached to an object"
+      (mkSchema
+        [ "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Object to show note for (default: HEAD)" :: Text) ] ]
+        [])
+      readOnly
   ]
 
 handleCatFile :: GitContext -> Maybe Value -> IO ToolResult
@@ -100,4 +134,35 @@ handleCountObjects :: GitContext -> Maybe Value -> IO ToolResult
 handleCountObjects ctx params = do
   let vFlag = if getBoolParam "verbose" params == Just True then ["-v"] else []
   result <- runGit ctx (["count-objects"] ++ vFlag)
+  gitResultToToolResult result
+
+handleDescribe :: GitContext -> Maybe Value -> IO ToolResult
+handleDescribe ctx params = do
+  let ref      = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
+      allFlag  = if getBoolParam "all" params == Just True then ["--all"] else []
+      tagsFlag = if getBoolParam "tags" params == Just True then ["--tags"] else []
+      longFlag = if getBoolParam "long" params == Just True then ["--long"] else []
+      abbrFlag = maybe [] (\n -> ["--abbrev=" ++ show n]) (getIntParam "abbrev" params)
+  result <- runGit ctx (["describe"] ++ allFlag ++ tagsFlag ++ longFlag ++ abbrFlag ++ ref)
+  gitResultToToolResult result
+
+handleNotesList :: GitContext -> Maybe Value -> IO ToolResult
+handleNotesList ctx params = do
+  let refArg = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
+  result <- runGit ctx (["notes", "list"] ++ refArg)
+  gitResultToToolResult result
+
+handleNotesAdd :: GitContext -> Maybe Value -> IO ToolResult
+handleNotesAdd ctx params = case getTextParam "message" params of
+  Nothing -> pure $ ToolResult [TextContent "Missing required parameter: message"] True
+  Just msg -> do
+    let refArg   = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
+        forceFlg = if getBoolParam "force" params == Just True then ["-f"] else []
+    result <- runGit ctx (["notes", "add"] ++ forceFlg ++ ["-m", textArg msg] ++ refArg)
+    gitResultToToolResult result
+
+handleNotesShow :: GitContext -> Maybe Value -> IO ToolResult
+handleNotesShow ctx params = do
+  let refArg = maybe [] (\r -> [textArg r]) (getTextParam "ref" params)
+  result <- runGit ctx (["notes", "show"] ++ refArg)
   gitResultToToolResult result

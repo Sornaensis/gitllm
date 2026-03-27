@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Merge (tools, handle, handleAbort, handleStatus) where
+module GitLLM.Git.Tools.Merge (tools, handle, handleAbort, handleStatus, handleMergeBase) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -29,6 +29,14 @@ tools =
       "Check if there are unmerged files (merge conflicts)"
       (mkSchema [] [])
       readOnly
+  , mkToolDefA "git_merge_base"
+      "Find the best common ancestor (merge base) between two commits or branches"
+      (mkSchema
+        [ "ref1" .= object [ "type" .= ("string" :: Text), "description" .= ("First ref (branch, commit, tag)" :: Text) ]
+        , "ref2" .= object [ "type" .= ("string" :: Text), "description" .= ("Second ref (branch, commit, tag)" :: Text) ]
+        ]
+        ["ref1", "ref2"])
+      readOnly
   ]
 
 handle :: GitContext -> Maybe Value -> IO ToolResult
@@ -50,3 +58,11 @@ handleStatus :: GitContext -> Maybe Value -> IO ToolResult
 handleStatus ctx _ = do
   result <- runGit ctx ["diff", "--name-only", "--diff-filter=U"]
   gitResultToToolResult result
+
+handleMergeBase :: GitContext -> Maybe Value -> IO ToolResult
+handleMergeBase ctx params =
+  case (getTextParam "ref1" params, getTextParam "ref2" params) of
+    (Just r1, Just r2) -> do
+      result <- runGit ctx ["merge-base", textArg r1, textArg r2]
+      gitResultToToolResult result
+    _ -> pure $ ToolResult [TextContent "Missing required parameters: ref1, ref2"] True

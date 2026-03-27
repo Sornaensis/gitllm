@@ -10,6 +10,7 @@ tools:
   - gitllm/git_get_repo
   - gitllm/git_clean
   - gitllm/git_clean_dry_run
+  - gitllm/git_gc
   - gitllm/git_reset
   - gitllm/git_reset_file
   - gitllm/git_bisect_start
@@ -29,6 +30,7 @@ tools:
   - gitllm/git_submodule_add
   - gitllm/git_submodule_update
   - gitllm/git_submodule_sync
+  - gitllm/git_submodule_deinit
   - gitllm/git_hooks_list
 user-invocable: false
 ---

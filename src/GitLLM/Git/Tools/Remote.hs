@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Remote (tools, handleList, handleAdd, handleRemove, handleFetch, handlePull, handlePush, parseRemoteLines) where
+module GitLLM.Git.Tools.Remote (tools, handleList, handleAdd, handleRemove, handleFetch, handlePull, handlePush, handleGetUrl, handleSetUrl, parseRemoteLines) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -54,10 +54,29 @@ tools =
         [ "remote"       .= object [ "type" .= ("string" :: Text), "description" .= ("Remote name" :: Text), "default" .= ("origin" :: Text) ]
         , "branch"       .= object [ "type" .= ("string" :: Text), "description" .= ("Branch to push" :: Text) ]
         , "set_upstream" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Set upstream tracking" :: Text) ]
+        , "force"        .= object [ "type" .= ("boolean" :: Text), "description" .= ("Force push (overwrites remote history — use force_with_lease instead when possible)" :: Text) ]
+        , "force_with_lease" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Force push only if remote ref matches local expectation (safer than force)" :: Text) ]
         , "tags"         .= object [ "type" .= ("boolean" :: Text), "description" .= ("Push tags" :: Text) ]
         ]
         [])
       destructive
+  , mkToolDefA "git_remote_get_url"
+      "Get the URL of a remote"
+      (mkSchema
+        [ "name" .= object [ "type" .= ("string" :: Text), "description" .= ("Remote name" :: Text) ]
+        , "push" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Query the push URL instead of fetch URL" :: Text) ]
+        ]
+        ["name"])
+      readOnly
+  , mkToolDefA "git_remote_set_url"
+      "Change the URL of an existing remote"
+      (mkSchema
+        [ "name" .= object [ "type" .= ("string" :: Text), "description" .= ("Remote name" :: Text) ]
+        , "url"  .= object [ "type" .= ("string" :: Text), "description" .= ("New URL for the remote" :: Text) ]
+        , "push" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Set the push URL instead of fetch URL" :: Text) ]
+        ]
+        ["name", "url"])
+      mutating
   ]
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult
@@ -123,8 +142,27 @@ handlePull ctx params = do
 handlePush :: GitContext -> Maybe Value -> IO ToolResult
 handlePush ctx params = do
   let upstreamFlag = if getBoolParam "set_upstream" params == Just True then ["-u"] else []
+      forceFlag    = if getBoolParam "force_with_lease" params == Just True then ["--force-with-lease"]
+                     else if getBoolParam "force" params == Just True then ["--force"] else []
       tagsFlag     = if getBoolParam "tags" params == Just True then ["--tags"] else []
       remote       = maybe [] (\r -> [textArg r]) (getTextParam "remote" params)
       branch       = maybe [] (\b -> [textArg b]) (getTextParam "branch" params)
-  result <- runGit ctx (["push"] ++ upstreamFlag ++ tagsFlag ++ remote ++ branch)
+  result <- runGit ctx (["push"] ++ upstreamFlag ++ forceFlag ++ tagsFlag ++ remote ++ branch)
   gitResultToToolResult result
+
+handleGetUrl :: GitContext -> Maybe Value -> IO ToolResult
+handleGetUrl ctx params = case getTextParam "name" params of
+  Nothing -> pure $ ToolResult [TextContent "Missing required parameter: name"] True
+  Just name -> do
+    let pushFlag = if getBoolParam "push" params == Just True then ["--push"] else []
+    result <- runGit ctx (["remote", "get-url"] ++ pushFlag ++ [textArg name])
+    gitResultToToolResult result
+
+handleSetUrl :: GitContext -> Maybe Value -> IO ToolResult
+handleSetUrl ctx params =
+  case (getTextParam "name" params, getTextParam "url" params) of
+    (Just name, Just url) -> do
+      let pushFlag = if getBoolParam "push" params == Just True then ["--push"] else []
+      result <- runGit ctx (["remote", "set-url"] ++ pushFlag ++ [textArg name, textArg url])
+      gitResultToToolResult result
+    _ -> pure $ ToolResult [TextContent "Missing required parameters: name, url"] True

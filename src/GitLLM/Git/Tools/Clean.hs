@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Clean (tools, handle, handleDryRun) where
+module GitLLM.Git.Tools.Clean (tools, handle, handleDryRun, handleGc) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -26,6 +26,15 @@ tools =
         [ "directories" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Include untracked directories" :: Text) ] ]
         [])
       readOnly
+  , mkToolDefA "git_gc"
+      "Run garbage collection to optimize the repository. Cleans up unnecessary files and compresses objects"
+      (mkSchema
+        [ "aggressive" .= object [ "type" .= ("boolean" :: Text), "description" .= ("More thorough but slower optimization (default: false)" :: Text) ]
+        , "auto" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Only run if needed based on heuristics (default: false)" :: Text) ]
+        , "prune" .= object [ "type" .= ("string" :: Text), "description" .= ("Prune objects older than this date (e.g. '2.weeks.ago', 'now'). Default: '2.weeks.ago'" :: Text) ]
+        ]
+        [])
+      mutating
   ]
 
 handle :: GitContext -> Maybe Value -> IO ToolResult
@@ -40,4 +49,12 @@ handleDryRun :: GitContext -> Maybe Value -> IO ToolResult
 handleDryRun ctx params = do
   let dirFlag = if getBoolParam "directories" params == Just True then ["-d"] else []
   result <- runGit ctx (["clean", "-n"] ++ dirFlag)
+  gitResultToToolResult result
+
+handleGc :: GitContext -> Maybe Value -> IO ToolResult
+handleGc ctx params = do
+  let aggrFlag  = if getBoolParam "aggressive" params == Just True then ["--aggressive"] else []
+      autoFlag  = if getBoolParam "auto" params == Just True then ["--auto"] else []
+      pruneFlag = maybe [] (\d -> ["--prune=" ++ textArg d]) (getTextParam "prune" params)
+  result <- runGit ctx (["gc"] ++ aggrFlag ++ autoFlag ++ pruneFlag)
   gitResultToToolResult result

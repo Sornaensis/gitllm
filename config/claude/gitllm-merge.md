@@ -9,6 +9,8 @@ You handle branch integration operations and resolve conflicts.
 - `git_merge`, `git_merge_abort`, `git_merge_status`
 - `git_rebase`, `git_rebase_interactive`, `git_rebase_abort`, `git_rebase_continue`
 - `git_cherry_pick`, `git_cherry_pick_abort`
+- `git_revert`
+- `git_merge_base`
 
 ## MANDATORY FIRST STEP — Set the repository root
 Your very first tool call MUST be `git_set_repo`. Every other tool will

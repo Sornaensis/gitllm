@@ -7,6 +7,7 @@ module GitLLM.Git.Tools.Composite
   , handleSyncFork
   , handleRepoHealth
   , handleChangelogGenerate
+  , handleBaseBranch
   , extractCommitType
   , parseChangelogEntries
   , filterBranches
@@ -95,6 +96,18 @@ tools =
             [ "type" .= ("string" :: Text)
             , "description" .= ("Group commits by: 'type' (conventional commits prefix), 'author', or 'none' (default: 'type')" :: Text)
             , "enum" .= (["type", "author", "none"] :: [Text])
+            ]
+        , outputParam
+        ]
+        [])
+      readOnly
+
+  , mkToolDefA "git_base_branch"
+      "Detect the default base branch of the repository (e.g. main, master, develop). Checks the remote HEAD, then falls back to well-known branch names"
+      (mkSchema
+        [ "remote" .= object
+            [ "type" .= ("string" :: Text)
+            , "description" .= ("Remote to check (default: 'origin')" :: Text)
             ]
         , outputParam
         ]
@@ -465,3 +478,63 @@ lookupStr :: Text -> KM.KeyMap Value -> Text
 lookupStr k m = case KM.lookup (fromText k) m of
   Just (String s) -> s
   _               -> ""
+
+-- ---------------------------------------------------------------------------
+-- git_base_branch
+-- ---------------------------------------------------------------------------
+
+handleBaseBranch :: GitContext -> Maybe Value -> IO ToolResult
+handleBaseBranch ctx params = do
+  let remote = maybe "origin" id (getTextParam "remote" params)
+  -- Strategy 1: check remote HEAD symbolic ref
+  symResult <- runGit ctx ["symbolic-ref", "refs/remotes/" <> textArg remote <> "/HEAD"]
+  case symResult of
+    Right raw -> do
+      let branch = T.strip $ stripRemotePrefix remote raw
+      if T.null branch
+        then fallbackDetect ctx params remote
+        else returnBranch params remote branch "remote HEAD"
+    Left _ -> fallbackDetect ctx params remote
+
+-- | Strip "refs/remotes/<remote>/" prefix from a ref.
+stripRemotePrefix :: Text -> Text -> Text
+stripRemotePrefix remote ref =
+  let prefix = "refs/remotes/" <> remote <> "/"
+  in if T.isPrefixOf prefix stripped then T.drop (T.length prefix) stripped else stripped
+  where stripped = T.strip ref
+
+-- | Fallback: check for well-known branch names.
+fallbackDetect :: GitContext -> Maybe Value -> Text -> IO ToolResult
+fallbackDetect ctx params remote = do
+  let candidates = ["main", "master", "develop", "development", "trunk"]
+  branchesResult <- runGit ctx ["branch", "-a", "--format=%(refname:short)"]
+  case branchesResult of
+    Left err -> gitResultToToolResult (Left err)
+    Right raw -> do
+      let branches = map T.strip (T.lines raw)
+          -- Check remote branches first, then local
+          found = firstMatch remote candidates branches
+      case found of
+        Just branch -> returnBranch params remote branch "branch name heuristic"
+        Nothing     -> pure $ ToolResult
+          [TextContent $ "Could not detect a base branch. No remote HEAD and none of "
+            <> T.intercalate ", " candidates <> " found."] True
+
+-- | Find the first candidate that exists as a branch (remote or local).
+firstMatch :: Text -> [Text] -> [Text] -> Maybe Text
+firstMatch remote candidates branches = go candidates
+  where
+    go [] = Nothing
+    go (c:cs)
+      | (remote <> "/" <> c) `elem` branches = Just c
+      | c `elem` branches                    = Just c
+      | otherwise                            = go cs
+
+returnBranch :: Maybe Value -> Text -> Text -> Text -> IO ToolResult
+returnBranch params remote branch method
+  | wantsJson params = pure $ jsonResult $ object
+      [ "base_branch" .= branch
+      , "remote"      .= remote
+      , "method"      .= method
+      ]
+  | otherwise = pure $ ToolResult [TextContent branch] False

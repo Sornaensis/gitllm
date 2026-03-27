@@ -16,14 +16,18 @@ tools =
       "Show changes between working tree and index (unstaged changes). Returns unified diff"
       (mkSchema
         [ "path" .= object [ "type" .= ("string" :: Text), "description" .= ("Limit diff to a specific file path" :: Text) ]
-        , "context_lines" .= object [ "type" .= ("integer" :: Text), "description" .= ("Number of context lines" :: Text), "default" .= (3 :: Int) ]
-        ]
+        , "context_lines" .= object [ "type" .= ("integer" :: Text), "description" .= ("Number of context lines" :: Text), "default" .= (3 :: Int) ]        , "name_only" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show only names of changed files" :: Text) ]
+        , "name_status" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show names and status (added/modified/deleted) of changed files" :: Text) ]        ]
         [])
       readOnly
   , mkToolDefA "git_diff_staged"
       "Show changes between index and HEAD (staged changes ready to commit). Returns unified diff"
       (mkSchema
-        [ "path" .= object [ "type" .= ("string" :: Text), "description" .= ("Limit diff to a specific file path" :: Text) ] ]
+        [ "path" .= object [ "type" .= ("string" :: Text), "description" .= ("Limit diff to a specific file path" :: Text) ]
+        , "context_lines" .= object [ "type" .= ("integer" :: Text), "description" .= ("Number of context lines" :: Text), "default" .= (3 :: Int) ]
+        , "name_only" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show only names of changed files" :: Text) ]
+        , "name_status" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show names and status (added/modified/deleted) of changed files" :: Text) ]
+        ]
         [])
       readOnly
   , mkToolDefA "git_diff_branches"
@@ -31,6 +35,8 @@ tools =
       (mkSchema
         [ "from_ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Source ref (branch, commit, tag)" :: Text) ]
         , "to_ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Target ref (branch, commit, tag)" :: Text) ]
+        , "stat" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show diffstat instead of full diff" :: Text) ]
+        , "name_only" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show only names of changed files" :: Text) ]
         ]
         ["from_ref", "to_ref"])
       readOnly
@@ -48,22 +54,35 @@ handle :: GitContext -> Maybe Value -> IO ToolResult
 handle ctx params = do
   let pathArg = maybe [] (\p -> ["--", textArg p]) (getTextParam "path" params)
       ctxArg  = maybe [] (\n -> ["-U" ++ show n]) (getIntParam "context_lines" params)
-  result <- runGit ctx (["diff"] ++ ctxArg ++ pathArg)
+      modeFlag = diffModeFlag params
+  result <- runGit ctx (["diff"] ++ modeFlag ++ ctxArg ++ pathArg)
   gitResultToToolResult result
 
 handleStaged :: GitContext -> Maybe Value -> IO ToolResult
 handleStaged ctx params = do
   let pathArg = maybe [] (\p -> ["--", textArg p]) (getTextParam "path" params)
-  result <- runGit ctx (["diff", "--staged"] ++ pathArg)
+      ctxArg  = maybe [] (\n -> ["-U" ++ show n]) (getIntParam "context_lines" params)
+      modeFlag = diffModeFlag params
+  result <- runGit ctx (["diff", "--staged"] ++ modeFlag ++ ctxArg ++ pathArg)
   gitResultToToolResult result
 
 handleBranches :: GitContext -> Maybe Value -> IO ToolResult
 handleBranches ctx params = do
   case (getTextParam "from_ref" params, getTextParam "to_ref" params) of
     (Just from, Just to) -> do
-      result <- runGit ctx ["diff", textArg from ++ ".." ++ textArg to]
+      let modeFlag = if getBoolParam "stat" params == Just True then ["--stat"]
+                     else if getBoolParam "name_only" params == Just True then ["--name-only"]
+                     else []
+      result <- runGit ctx (["diff"] ++ modeFlag ++ [textArg from ++ ".." ++ textArg to])
       gitResultToToolResult result
     _ -> pure $ ToolResult [TextContent "Missing required parameters: from_ref, to_ref"] True
+
+-- | Build the --name-only or --name-status flag for diff commands.
+diffModeFlag :: Maybe Value -> [String]
+diffModeFlag params
+  | getBoolParam "name_only" params == Just True   = ["--name-only"]
+  | getBoolParam "name_status" params == Just True  = ["--name-status"]
+  | otherwise                                       = []
 
 handleStat :: GitContext -> Maybe Value -> IO ToolResult
 handleStat ctx params

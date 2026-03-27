@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Log (tools, handle, handleOneline, handleFile, handleGraph, parseLogEntries) where
+module GitLLM.Git.Tools.Log (tools, handle, handleOneline, handleFile, handleGraph, handleShortlog, parseLogEntries) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -19,6 +19,7 @@ tools =
         , "author" .= object [ "type" .= ("string" :: Text), "description" .= ("Filter by author pattern" :: Text) ]
         , "since" .= object [ "type" .= ("string" :: Text), "description" .= ("Show commits after date (e.g. '2 weeks ago')" :: Text) ]
         , "until" .= object [ "type" .= ("string" :: Text), "description" .= ("Show commits before date" :: Text) ]
+        , "grep" .= object [ "type" .= ("string" :: Text), "description" .= ("Filter commits whose message matches this pattern" :: Text) ]
         , outputParam
         ]
         [])
@@ -44,6 +45,16 @@ tools =
       (mkSchema
         [ "max_count" .= object [ "type" .= ("integer" :: Text), "description" .= ("Maximum number of commits" :: Text) ]
         , "all" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show all branches" :: Text) ]
+        ]
+        [])
+      readOnly
+  , mkToolDefA "git_shortlog"
+      "Summarize commit output grouped by author"
+      (mkSchema
+        [ "numbered" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Sort output by number of commits per author (descending)" :: Text) ]
+        , "summary" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show only commit count per author" :: Text) ]
+        , "email" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Show email address of each author" :: Text) ]
+        , "ref" .= object [ "type" .= ("string" :: Text), "description" .= ("Rev range (e.g. 'v1.0..HEAD'). Default: all commits" :: Text) ]
         ]
         [])
       readOnly
@@ -134,7 +145,7 @@ gitErrorToResult (GitTimeoutError secs)  = ToolResult [TextContent ("Command tim
 
 -- Helpers
 buildLogArgs :: Maybe Value -> [String]
-buildLogArgs params = buildCountArg params ++ authorArg params ++ sinceArg params ++ untilArg params
+buildLogArgs params = buildCountArg params ++ authorArg params ++ sinceArg params ++ untilArg params ++ grepArg params
 
 buildCountArg :: Maybe Value -> [String]
 buildCountArg params = case getIntParam "max_count" params of
@@ -156,9 +167,23 @@ untilArg params = case getTextParam "until" params of
   Just u  -> ["--until=" ++ textArg u]
   Nothing -> []
 
+grepArg :: Maybe Value -> [String]
+grepArg params = case getTextParam "grep" params of
+  Just g  -> ["--grep=" ++ textArg g]
+  Nothing -> []
+
 allFlag :: Maybe Value -> [String]
 allFlag params = case getBoolParam "all" params of
   Just True -> ["--all"]
   _         -> []
+
+handleShortlog :: GitContext -> Maybe Value -> IO ToolResult
+handleShortlog ctx params = do
+  let numFlag   = if getBoolParam "numbered" params == Just True then ["-n"] else []
+      sumFlag   = if getBoolParam "summary" params == Just True then ["-s"] else []
+      emailFlag = if getBoolParam "email" params == Just True then ["-e"] else []
+      refArg    = maybe ["HEAD"] (\r -> [textArg r]) (getTextParam "ref" params)
+  result <- runGit ctx (["shortlog"] ++ numFlag ++ sumFlag ++ emailFlag ++ refArg)
+  gitResultToToolResult result
 
 

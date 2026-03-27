@@ -88,31 +88,31 @@ toolDefinitionSpec = describe "Tool definitions" $ do
         ]
 
   describe "Status" $ toolModuleTests Status.tools 2
-  describe "Log" $ toolModuleTests Log.tools 4
+  describe "Log" $ toolModuleTests Log.tools 5
   describe "Diff" $ toolModuleTests Diff.tools 4
   describe "Branch" $ toolModuleTests Branch.tools 7
   describe "Commit" $ toolModuleTests Commit.tools 3
-  describe "Staging" $ toolModuleTests Staging.tools 4
-  describe "Remote" $ toolModuleTests Remote.tools 6
-  describe "Stash" $ toolModuleTests Stash.tools 5
+  describe "Staging" $ toolModuleTests Staging.tools 6
+  describe "Remote" $ toolModuleTests Remote.tools 8
+  describe "Stash" $ toolModuleTests Stash.tools 6
   describe "Tag" $ toolModuleTests Tag.tools 3
-  describe "Merge" $ toolModuleTests Merge.tools 3
+  describe "Merge" $ toolModuleTests Merge.tools 4
   describe "Rebase" $ toolModuleTests Rebase.tools 4
-  describe "Cherry" $ toolModuleTests Cherry.tools 2
+  describe "Cherry" $ toolModuleTests Cherry.tools 3
   describe "Worktree" $ toolModuleTests Worktree.tools 3
-  describe "Submodule" $ toolModuleTests Submodule.tools 4
+  describe "Submodule" $ toolModuleTests Submodule.tools 5
   describe "Config" $ toolModuleTests Config.tools 3
   describe "Blame" $ toolModuleTests Blame.tools 1
   describe "Bisect" $ toolModuleTests Bisect.tools 4
-  describe "Clean" $ toolModuleTests Clean.tools 2
+  describe "Clean" $ toolModuleTests Clean.tools 3
   describe "Reset" $ toolModuleTests Reset.tools 2
   describe "Reflog" $ toolModuleTests Reflog.tools 1
   describe "Search" $ toolModuleTests Search.tools 2
   describe "Patch" $ toolModuleTests Patch.tools 2
   describe "Archive" $ toolModuleTests Archive.tools 1
   describe "Hooks" $ toolModuleTests Hooks.tools 1
-  describe "Inspect" $ toolModuleTests Inspect.tools 5
-  describe "Composite" $ toolModuleTests Composite.tools 4
+  describe "Inspect" $ toolModuleTests Inspect.tools 9
+  describe "Composite" $ toolModuleTests Composite.tools 5
 
   it "all tool names are globally unique" $ do
     let names = map toolName allTools

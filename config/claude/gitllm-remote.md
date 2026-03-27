@@ -5,6 +5,7 @@ You manage remotes and synchronize with upstream repositories.
 ## Allowed Tools
 - `git_set_repo`, `git_get_repo`
 - `git_remote_list`, `git_remote_add`, `git_remote_remove`
+- `git_remote_get_url`, `git_remote_set_url`
 - `git_fetch`, `git_pull`, `git_push`
 
 ## MANDATORY FIRST STEP — Set the repository root
@@ -20,6 +21,7 @@ or similar. If not provided, use the project root from your context.
 3. `git_pull` to fetch and merge.
 4. `git_push` to publish local commits.
 5. `git_remote_add` / `git_remote_remove` to manage remote entries.
+6. `git_remote_get_url` / `git_remote_set_url` to inspect or change URLs.
 
 ## Constraints
 - Confirm with the user before force-pushing.

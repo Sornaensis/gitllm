@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Stash (tools, handlePush, handlePop, handleList, handleShow, handleDrop, parseStashLines) where
+module GitLLM.Git.Tools.Stash (tools, handlePush, handlePop, handleApply, handleList, handleShow, handleDrop, parseStashLines) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -18,6 +18,7 @@ tools =
         [ "message" .= object [ "type" .= ("string" :: Text), "description" .= ("Optional stash message" :: Text) ]
         , "include_untracked" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Include untracked files" :: Text) ]
         , "keep_index" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Keep staged changes in the index" :: Text) ]
+        , "staged" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Stash only staged changes (git 2.35+)" :: Text) ]
         ]
         [])
       mutating
@@ -25,6 +26,12 @@ tools =
       "Apply the top stash entry and remove it from the stash list"
       (mkSchema
         [ "index" .= object [ "type" .= ("integer" :: Text), "description" .= ("Stash index to pop" :: Text), "default" .= (0 :: Int) ] ]
+        [])
+      mutating
+  , mkToolDefA "git_stash_apply"
+      "Apply a stash entry without removing it from the stash list"
+      (mkSchema
+        [ "index" .= object [ "type" .= ("integer" :: Text), "description" .= ("Stash index to apply" :: Text), "default" .= (0 :: Int) ] ]
         [])
       mutating
   , mkToolDefA "git_stash_list"
@@ -52,13 +59,20 @@ handlePush ctx params = do
   let msgFlag       = maybe [] (\m -> ["-m", textArg m]) (getTextParam "message" params)
       untrackedFlag = if getBoolParam "include_untracked" params == Just True then ["--include-untracked"] else []
       keepFlag      = if getBoolParam "keep_index" params == Just True then ["--keep-index"] else []
-  result <- runGit ctx (["stash", "push"] ++ msgFlag ++ untrackedFlag ++ keepFlag)
+      stagedFlag    = if getBoolParam "staged" params == Just True then ["--staged"] else []
+  result <- runGit ctx (["stash", "push"] ++ msgFlag ++ untrackedFlag ++ keepFlag ++ stagedFlag)
   gitResultToToolResult result
 
 handlePop :: GitContext -> Maybe Value -> IO ToolResult
 handlePop ctx params = do
   let idx = maybe "stash@{0}" (\n -> "stash@{" ++ show n ++ "}") (getIntParam "index" params)
   result <- runGit ctx ["stash", "pop", idx]
+  gitResultToToolResult result
+
+handleApply :: GitContext -> Maybe Value -> IO ToolResult
+handleApply ctx params = do
+  let idx = maybe "stash@{0}" (\n -> "stash@{" ++ show n ++ "}") (getIntParam "index" params)
+  result <- runGit ctx ["stash", "apply", idx]
   gitResultToToolResult result
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult

@@ -14,6 +14,11 @@ tools:
   - gitllm/git_show
   - gitllm/git_blame
   - gitllm/git_reflog
+  - gitllm/git_shortlog
+  - gitllm/git_describe
+  - gitllm/git_notes_list
+  - gitllm/git_notes_add
+  - gitllm/git_notes_show
 user-invocable: false
 ---
 
@@ -37,6 +42,9 @@ environment context. Pass the absolute path to `git_set_repo`.
 4. Use `git_show` to inspect a single commit's content.
 5. Use `git_blame` for line-by-line authorship.
 6. Use `git_reflog` for reference history and recovery.
+7. Use `git_shortlog` for author contribution summaries.
+8. Use `git_describe` to find the nearest tag for a commit.
+9. Use `git_notes_list` / `git_notes_show` / `git_notes_add` for commit notes.
 
 ## Constraints
 - ONLY use the tools listed above.

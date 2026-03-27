@@ -12,6 +12,8 @@ tools:
   - gitllm/git_fetch
   - gitllm/git_pull
   - gitllm/git_push
+  - gitllm/git_remote_get_url
+  - gitllm/git_remote_set_url
 user-invocable: false
 ---
 
@@ -33,6 +35,7 @@ environment context. Pass the absolute path to `git_set_repo`.
 3. `git_pull` to fetch and merge.
 4. `git_push` to publish local commits.
 5. `git_remote_add` / `git_remote_remove` to manage remote entries.
+6. `git_remote_get_url` / `git_remote_set_url` to inspect or change URLs.
 
 ## Constraints
 - Confirm with the user before force-pushing (`git_push` with force flags).

@@ -20,6 +20,8 @@ tools:
   - gitllm/git_rebase_continue
   - gitllm/git_cherry_pick
   - gitllm/git_cherry_pick_abort
+  - gitllm/git_revert
+  - gitllm/git_merge_base
   - read
   - edit
 user-invocable: false

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Cherry (tools, handle, handleAbort) where
+module GitLLM.Git.Tools.Cherry (tools, handle, handleAbort, handleRevert) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -23,6 +23,14 @@ tools =
       "Abort an in-progress cherry-pick"
       (mkSchema [] [])
       mutating
+  , mkToolDefA "git_revert"
+      "Revert one or more existing commits, creating new commits that undo the changes"
+      (mkSchema
+        [ "commits" .= object [ "type" .= ("array" :: Text), "items" .= object ["type" .= ("string" :: Text)], "description" .= ("Commit SHAs to revert" :: Text) ]
+        , "no_commit" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Apply reverts to working tree without creating commits" :: Text) ]
+        ]
+        ["commits"])
+      mutating
   ]
 
 handle :: GitContext -> Maybe Value -> IO ToolResult
@@ -37,3 +45,11 @@ handleAbort :: GitContext -> Maybe Value -> IO ToolResult
 handleAbort ctx _ = do
   result <- runGit ctx ["cherry-pick", "--abort"]
   gitResultToToolResult result
+
+handleRevert :: GitContext -> Maybe Value -> IO ToolResult
+handleRevert ctx params = case getTextListParam "commits" params of
+  Nothing -> pure $ ToolResult [TextContent "Missing required parameter: commits"] True
+  Just commits -> do
+    let noCommitFlag = if getBoolParam "no_commit" params == Just True then ["--no-commit"] else []
+    result <- runGit ctx (["revert"] ++ noCommitFlag ++ map textArg commits)
+    gitResultToToolResult result

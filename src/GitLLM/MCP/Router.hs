@@ -6,14 +6,16 @@ module GitLLM.MCP.Router
   ) where
 
 import Data.Aeson
+import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.IORef (readIORef, writeIORef)
 import Data.Text (Text)
 import qualified Data.Text as T
-import System.Directory (doesDirectoryExist, doesFileExist)
+import System.Directory (doesDirectoryExist, doesFileExist, createDirectoryIfMissing)
 import System.FilePath ((</>))
 import GitLLM.MCP.Types
-import GitLLM.Git.Types (GitContext(..), ServerState(..))
+import GitLLM.Git.Types (GitContext(..), GitError(..), ServerState(..))
+import GitLLM.Git.Runner (runGit)
 
 import qualified GitLLM.Git.Tools.Status    as Status
 import qualified GitLLM.Git.Tools.Log       as Log
@@ -100,6 +102,25 @@ repoToolDefinitions =
         , "additionalProperties" .= False
         ])
       (Just $ ToolAnnotations (Just True) (Just False) Nothing)
+  , ToolDefinition
+      "git_init"
+      "Initialize a new git repository at the given path. Also sets the repo root for subsequent tool calls."
+      (object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= object
+            [ "path" .= object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Absolute path to the directory to initialize as a git repository" :: Text)
+                ]
+            , "bare" .= object
+                [ "type" .= ("boolean" :: Text)
+                , "description" .= ("Create a bare repository" :: Text)
+                ]
+            ]
+        , "required" .= (["path"] :: [Text])
+        , "additionalProperties" .= False
+        ])
+      (Just $ ToolAnnotations (Just False) (Just False) Nothing)
   ]
 
 -- | Route a tools/call request to the appropriate handler.
@@ -108,6 +129,7 @@ routeRequest state name params = case name of
   -- Repo management tools (work without repo being set)
   "git_set_repo" -> handleSetRepo state params
   "git_get_repo" -> handleGetRepo state
+  "git_init"     -> handleInit state params
 
   -- All other tools require repo to be set
   _ -> do
@@ -173,6 +195,49 @@ handleGetRepo state = do
       [TextContent $ "Repository root: " <> T.pack path]
       False
 
+-- | Handle git_init: initialize a new repo and set it as the active repo.
+handleInit :: ServerState -> Maybe Value -> IO ToolResult
+handleInit state params = case getPathParam params of
+  Nothing -> pure $ ToolResult
+    [TextContent "ERROR: git_init requires a 'path' parameter with the absolute path to the directory."]
+    True
+  Just path -> do
+    let pathStr = T.unpack path
+    -- Create directory if it doesn't exist
+    createDirectoryIfMissing True pathStr
+    -- Check it's not already a git repo
+    let gitPath = pathStr </> ".git"
+    gitExists <- doesDirectoryExist gitPath
+    if gitExists
+      then pure $ ToolResult
+        [TextContent $ "ERROR: Already a git repository: " <> path]
+        True
+      else do
+        let bareFlag = case getBoolParam "bare" params of
+              Just True -> ["--bare"]
+              _         -> []
+            ctx = GitContext pathStr (stateTimeout state)
+        result <- runGit ctx (["init"] ++ bareFlag ++ [pathStr])
+        case result of
+          Right out -> do
+            writeIORef (stateRepoPath state) (Just pathStr)
+            pure $ ToolResult
+              [TextContent $ out <> "\nRepository root set to: " <> path]
+              False
+          Left (GitProcessError _ err) -> pure $ ToolResult [TextContent err] True
+          Left (GitParseError err)     -> pure $ ToolResult [TextContent err] True
+          Left (GitValidationError err)-> pure $ ToolResult [TextContent err] True
+          Left (GitTimeoutError secs)  -> pure $ ToolResult [TextContent ("Command timed out after " <> T.pack (show secs) <> " seconds")] True
+  where
+    getPathParam (Just (Object o)) = case KM.lookup "path" o of
+      Just (String s) -> Just s
+      _               -> Nothing
+    getPathParam _ = Nothing
+    getBoolParam key (Just (Object o)) = case KM.lookup (Key.fromText key) o of
+      Just (Bool b) -> Just b
+      _             -> Nothing
+    getBoolParam _ _ = Nothing
+
 -- | Route git tool calls to the appropriate handler.
 routeGitTool :: GitContext -> Text -> Maybe Value -> IO ToolResult
 routeGitTool ctx name params = case name of
@@ -184,6 +249,7 @@ routeGitTool ctx name params = case name of
   "git_log_oneline"       -> Log.handleOneline ctx params
   "git_log_file"          -> Log.handleFile ctx params
   "git_log_graph"         -> Log.handleGraph ctx params
+  "git_shortlog"           -> Log.handleShortlog ctx params
   -- Diff
   "git_diff"              -> Diff.handle ctx params
   "git_diff_staged"       -> Diff.handleStaged ctx params
@@ -206,6 +272,8 @@ routeGitTool ctx name params = case name of
   "git_add_all"           -> Staging.handleAddAll ctx params
   "git_restore"           -> Staging.handleRestore ctx params
   "git_restore_staged"    -> Staging.handleRestoreStaged ctx params
+  "git_rm"                -> Staging.handleRm ctx params
+  "git_mv"                -> Staging.handleMv ctx params
   -- Remote
   "git_remote_list"       -> Remote.handleList ctx params
   "git_remote_add"        -> Remote.handleAdd ctx params
@@ -213,9 +281,12 @@ routeGitTool ctx name params = case name of
   "git_fetch"             -> Remote.handleFetch ctx params
   "git_pull"              -> Remote.handlePull ctx params
   "git_push"              -> Remote.handlePush ctx params
+  "git_remote_get_url"    -> Remote.handleGetUrl ctx params
+  "git_remote_set_url"    -> Remote.handleSetUrl ctx params
   -- Stash
   "git_stash_push"        -> Stash.handlePush ctx params
   "git_stash_pop"         -> Stash.handlePop ctx params
+  "git_stash_apply"       -> Stash.handleApply ctx params
   "git_stash_list"        -> Stash.handleList ctx params
   "git_stash_show"        -> Stash.handleShow ctx params
   "git_stash_drop"        -> Stash.handleDrop ctx params
@@ -227,6 +298,7 @@ routeGitTool ctx name params = case name of
   "git_merge"             -> Merge.handle ctx params
   "git_merge_abort"       -> Merge.handleAbort ctx params
   "git_merge_status"      -> Merge.handleStatus ctx params
+  "git_merge_base"        -> Merge.handleMergeBase ctx params
   -- Rebase
   "git_rebase"            -> Rebase.handle ctx params
   "git_rebase_interactive"-> Rebase.handleInteractive ctx params
@@ -235,6 +307,7 @@ routeGitTool ctx name params = case name of
   -- Cherry-pick
   "git_cherry_pick"       -> Cherry.handle ctx params
   "git_cherry_pick_abort" -> Cherry.handleAbort ctx params
+  "git_revert"            -> Cherry.handleRevert ctx params
   -- Worktree
   "git_worktree_list"     -> Worktree.handleList ctx params
   "git_worktree_add"      -> Worktree.handleAdd ctx params
@@ -244,6 +317,7 @@ routeGitTool ctx name params = case name of
   "git_submodule_add"     -> Submodule.handleAdd ctx params
   "git_submodule_update"  -> Submodule.handleUpdate ctx params
   "git_submodule_sync"    -> Submodule.handleSync ctx params
+  "git_submodule_deinit"  -> Submodule.handleDeinit ctx params
   -- Config
   "git_config_get"        -> Config.handleGet ctx params
   "git_config_set"        -> Config.handleSet ctx params
@@ -258,6 +332,7 @@ routeGitTool ctx name params = case name of
   -- Clean
   "git_clean"             -> Clean.handle ctx params
   "git_clean_dry_run"     -> Clean.handleDryRun ctx params
+  "git_gc"                -> Clean.handleGc ctx params
   -- Reset
   "git_reset"             -> Reset.handle ctx params
   "git_reset_file"        -> Reset.handleFile ctx params
@@ -279,10 +354,15 @@ routeGitTool ctx name params = case name of
   "git_ls_tree"           -> Inspect.handleLsTree ctx params
   "git_rev_parse"         -> Inspect.handleRevParse ctx params
   "git_count_objects"     -> Inspect.handleCountObjects ctx params
+  "git_describe"          -> Inspect.handleDescribe ctx params
+  "git_notes_list"        -> Inspect.handleNotesList ctx params
+  "git_notes_add"         -> Inspect.handleNotesAdd ctx params
+  "git_notes_show"        -> Inspect.handleNotesShow ctx params
   -- Composite operations
   "git_branch_cleanup"    -> Composite.handleBranchCleanup ctx params
   "git_sync_fork"         -> Composite.handleSyncFork ctx params
   "git_repo_health"       -> Composite.handleRepoHealth ctx params
   "git_changelog_generate"-> Composite.handleChangelogGenerate ctx params
+  "git_base_branch"       -> Composite.handleBaseBranch ctx params
 
   _ -> pure $ ToolResult [TextContent ("Unknown tool: " <> name)] True

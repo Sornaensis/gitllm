@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module GitLLM.Git.Tools.Submodule (tools, handleList, handleAdd, handleUpdate, handleSync) where
+module GitLLM.Git.Tools.Submodule (tools, handleList, handleAdd, handleUpdate, handleSync, handleDeinit) where
 
 import Data.Aeson
 import Data.Text (Text)
@@ -39,6 +39,15 @@ tools =
         [ "recursive" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Sync nested submodules" :: Text) ] ]
         [])
       mutating
+  , mkToolDefA "git_submodule_deinit"
+      "Unregister a submodule. Removes its working tree and config entry. Use force to remove even with local modifications"
+      (mkSchema
+        [ "path" .= object [ "type" .= ("string" :: Text), "description" .= ("Path of the submodule to deinitialize" :: Text) ]
+        , "force" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Force removal even if the submodule has local modifications (default: false)" :: Text) ]
+        , "all" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Deinitialize all submodules (default: false)" :: Text) ]
+        ]
+        [])
+      destructive
   ]
 
 handleList :: GitContext -> Maybe Value -> IO ToolResult
@@ -67,4 +76,12 @@ handleSync :: GitContext -> Maybe Value -> IO ToolResult
 handleSync ctx params = do
   let recursiveFlag = if getBoolParam "recursive" params == Just True then ["--recursive"] else []
   result <- runGit ctx (["submodule", "sync"] ++ recursiveFlag)
+  gitResultToToolResult result
+
+handleDeinit :: GitContext -> Maybe Value -> IO ToolResult
+handleDeinit ctx params = do
+  let forceFlag = if getBoolParam "force" params == Just True then ["-f"] else []
+      allFlag   = if getBoolParam "all" params == Just True then ["--all"] else []
+      pathArg   = maybe [] (\p -> ["--", textArg p]) (getTextParam "path" params)
+  result <- runGit ctx (["submodule", "deinit"] ++ forceFlag ++ allFlag ++ pathArg)
   gitResultToToolResult result

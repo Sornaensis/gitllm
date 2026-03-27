@@ -16,6 +16,7 @@ tools =
       (mkSchema
         [ "message" .= object [ "type" .= ("string" :: Text), "description" .= ("Commit message" :: Text) ]
         , "allow_empty" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Allow an empty commit" :: Text) ]
+        , "no_verify" .= object [ "type" .= ("boolean" :: Text), "description" .= ("Skip pre-commit and commit-msg hooks" :: Text) ]
         ]
         ["message"])
       mutating
@@ -41,8 +42,9 @@ handle :: GitContext -> Maybe Value -> IO ToolResult
 handle ctx params = case getTextParam "message" params of
   Nothing -> pure $ ToolResult [TextContent "Missing required parameter: message"] True
   Just msg -> do
-    let emptyFlag = if getBoolParam "allow_empty" params == Just True then ["--allow-empty"] else []
-    result <- runGit ctx (["commit", "-m", textArg msg] ++ emptyFlag)
+    let emptyFlag  = if getBoolParam "allow_empty" params == Just True then ["--allow-empty"] else []
+        verifyFlag = if getBoolParam "no_verify" params == Just True then ["--no-verify"] else []
+    result <- runGit ctx (["commit", "-m", textArg msg] ++ emptyFlag ++ verifyFlag)
     gitResultToToolResult result
 
 handleAmend :: GitContext -> Maybe Value -> IO ToolResult
