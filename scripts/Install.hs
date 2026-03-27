@@ -197,6 +197,9 @@ installBinary :: InstallOpts -> FilePath -> IO ()
 installBinary opts binDir = do
   let destPath = binDir </> binaryName
 
+  -- Kill any running gitllm instances before overwriting
+  unless (optDryRun opts) $ killRunningInstances opts
+
   -- Find the built binary from Stack
   stackLocalBin <- findStackBinary
   case stackLocalBin of
@@ -220,6 +223,17 @@ installBinary opts binDir = do
             setPermissions destPath (setOwnerExecutable True perms)
 
       success $ "Binary installed to " ++ destPath
+
+-- | Kill any running gitllm processes so the binary can be replaced.
+killRunningInstances :: InstallOpts -> IO ()
+killRunningInstances _opts = do
+  logInfo "Stopping running gitllm instances..."
+  result <- case currentPlatform of
+    Windows -> tryReadProcess "taskkill" ["/F", "/IM", "gitllm.exe"] ""
+    _       -> tryReadProcess "pkill" ["-f", "gitllm"] ""
+  case result of
+    Just _  -> logInfo "  Stopped running instances"
+    Nothing -> logInfo "  No running instances found"
 
 -- | Try to locate the stack-built binary.
 -- First asks Stack for its local-install-root, then falls back to common paths.
