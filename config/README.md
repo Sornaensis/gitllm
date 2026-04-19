@@ -32,6 +32,8 @@ config/
     gitllm-remote.agent.md    Remote, fetch, pull, push (6 tools)
     gitllm-stash.agent.md     Stash management (5 tools)
     gitllm-maintenance.agent.md  Cleanup & advanced ops (22 tools)
+  opencode/
+    mcp.json                  MCP server entry for opencode.json
 ```
 
 ## Install Flags
@@ -44,6 +46,8 @@ The installer supports granular control over what gets installed:
 | `--no-claude-agent`  | Skip Claude agent instructions          |
 | `--no-copilot-mcp`  | Skip Copilot MCP server configuration   |
 | `--no-copilot-agent` | Skip Copilot agent definition           |
+| `--no-opencode-mcp` | Skip OpenCode MCP server configuration  |
+| `--no-opencode-agent` | Skip OpenCode agent installation      |
 | `--binary-only`     | Skip all configuration (binary only)    |
 | `--config-only`     | Skip binary installation                |
 | `--dry-run`         | Preview changes without writing files   |
@@ -53,3 +57,9 @@ The installer supports granular control over what gets installed:
 Edit the files in this directory to customize what gets installed. The MCP
 definition files use `{{GITLLM_PATH}}` as a placeholder that the installer
 replaces with the actual binary path at install time.
+
+For OpenCode, the installer writes a `gitllm` entry into the global
+`opencode.json` `mcp` map and installs agent markdown files into the global
+`agents/` directory. The OpenCode agent content currently reuses the
+OpenCode-compatible manifests in `config/copilot/` and installs them with
+OpenCode-style filenames such as `gitllm.md`.

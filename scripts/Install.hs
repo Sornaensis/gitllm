@@ -7,8 +7,10 @@
 --   1. Copying the gitllm binary to the appropriate system location
 --   2. Writing MCP server configuration for Claude Code
 --   3. Writing MCP server configuration for GitHub Copilot (VS Code)
---   4. Installing Claude agent instructions (~/.claude/commands/)
---   5. Installing Copilot agent definition (VS Code user agents)
+--   4. Writing MCP server configuration for OpenCode
+--   5. Installing Claude agent instructions (~/.claude/commands/)
+--   6. Installing Copilot agent definition (VS Code user agents)
+--   7. Installing OpenCode agents (~/.config/opencode/agents/)
 --
 -- MCP definitions and agent files are read from the config/ directory.
 -- Each component can be disabled individually via --no-{client}-{type} flags.
@@ -50,6 +52,8 @@ data InstallOpts = InstallOpts
   , optNoClaudeAgent :: Bool
   , optNoCopilotMcp  :: Bool
   , optNoCopilotAgent :: Bool
+  , optNoOpenCodeMcp :: Bool
+  , optNoOpenCodeAgent :: Bool
   , optConfigDir     :: FilePath
   , optUninstall     :: Bool
   }
@@ -89,7 +93,15 @@ installOptsParser = InstallOpts
   <*> switch
       ( long "no-copilot-agent"
      <> help "Skip Copilot agent definition installation"
-      )
+       )
+  <*> switch
+      ( long "no-opencode-mcp"
+     <> help "Skip OpenCode MCP server configuration"
+       )
+  <*> switch
+      ( long "no-opencode-agent"
+     <> help "Skip OpenCode agent installation"
+       )
   <*> strOption
       ( long "config-dir"
      <> metavar "DIR"
@@ -181,6 +193,32 @@ vscodePromptsDir = case currentPlatform of
     home <- getHomeDirectory
     pure (home </> ".config" </> "Code" </> "User" </> "prompts")
 
+-- | OpenCode global config file location.
+opencodeConfigPath :: IO FilePath
+opencodeConfigPath = case currentPlatform of
+  Windows -> do
+    appData <- getEnv' "APPDATA"
+    pure (appData </> "opencode" </> "opencode.json")
+  MacOS -> do
+    home <- getHomeDirectory
+    pure (home </> ".config" </> "opencode" </> "opencode.json")
+  _ -> do
+    home <- getHomeDirectory
+    pure (home </> ".config" </> "opencode" </> "opencode.json")
+
+-- | OpenCode global agents directory.
+opencodeAgentsDir :: IO FilePath
+opencodeAgentsDir = case currentPlatform of
+  Windows -> do
+    appData <- getEnv' "APPDATA"
+    pure (appData </> "opencode" </> "agents")
+  MacOS -> do
+    home <- getHomeDirectory
+    pure (home </> ".config" </> "opencode" </> "agents")
+  _ -> do
+    home <- getHomeDirectory
+    pure (home </> ".config" </> "opencode" </> "agents")
+
 -- | Get an environment variable with fallback to home directory.
 getEnv' :: String -> IO FilePath
 getEnv' var = do
@@ -196,9 +234,6 @@ getEnv' var = do
 installBinary :: InstallOpts -> FilePath -> IO ()
 installBinary opts binDir = do
   let destPath = binDir </> binaryName
-
-  -- Kill any running gitllm instances before overwriting
-  unless (optDryRun opts) $ killRunningInstances opts
 
   -- Find the built binary from Stack
   stackLocalBin <- findStackBinary
@@ -234,6 +269,10 @@ killRunningInstances _opts = do
   case result of
     Just _  -> logInfo "  Stopped running instances"
     Nothing -> logInfo "  No running instances found"
+
+preflightStopRunningInstances :: InstallOpts -> IO ()
+preflightStopRunningInstances opts =
+  unless (optDryRun opts) $ killRunningInstances opts
 
 -- | Try to locate the stack-built binary.
 -- First asks Stack for its local-install-root, then falls back to common paths.
@@ -406,6 +445,53 @@ mergeCopilotConfig (Object top) entry =
 mergeCopilotConfig _ entry = mergeCopilotConfig (object []) entry
 
 -- ---------------------------------------------------------------------------
+-- MCP config: OpenCode
+-- ---------------------------------------------------------------------------
+
+installOpenCodeMcp :: InstallOpts -> FilePath -> IO ()
+installOpenCodeMcp opts binaryAbsPath = do
+  configPath <- opencodeConfigPath
+  let templatePath = optConfigDir opts </> "opencode" </> "mcp.json"
+
+  logInfo $ "Configuring OpenCode MCP:"
+  logInfo $ "  config:   " ++ configPath
+  logInfo $ "  template: " ++ templatePath
+
+  unless (optDryRun opts) $ do
+    entry <- readMcpTemplate templatePath binaryAbsPath
+    createDirectoryIfMissing True (takeDirectory configPath)
+
+    existing <- doesFileExist configPath
+    config <- if existing
+      then do
+        contents <- BS.readFile configPath
+        if BS.null contents
+          then pure (object [])
+          else case eitherDecodeStrict contents of
+            Right val -> pure val
+            Left _    -> do
+              hPutStrLn stderr "WARNING: Could not parse existing OpenCode config"
+              hPutStrLn stderr "         Existing content will be replaced."
+              pure (object [])
+      else pure (object [])
+
+    let updated = mergeOpenCodeConfig config entry
+    BL.writeFile configPath (encode updated)
+
+  success "OpenCode MCP configured"
+
+-- | Merge a gitllm server entry into OpenCode config.
+mergeOpenCodeConfig :: Value -> Value -> Value
+mergeOpenCodeConfig (Object top) entry =
+  let servers = case KM.lookup "mcp" top of
+        Just (Object s) -> s
+        _               -> KM.empty
+      servers' = KM.insert "gitllm" entry servers
+      top' = KM.insert "mcp" (Object servers') top
+  in Object top'
+mergeOpenCodeConfig _ entry = mergeOpenCodeConfig (object []) entry
+
+-- ---------------------------------------------------------------------------
 -- Agent definitions: Claude
 -- ---------------------------------------------------------------------------
 
@@ -490,6 +576,48 @@ installCopilotAgent opts = do
   success "Copilot agent definitions installed"
 
 -- ---------------------------------------------------------------------------
+-- Agent definitions: OpenCode
+-- ---------------------------------------------------------------------------
+
+installOpenCodeAgent :: InstallOpts -> IO ()
+installOpenCodeAgent opts = do
+  destDir <- opencodeAgentsDir
+  let srcDir = optConfigDir opts </> "copilot"
+      agentFiles = [ ("gitllm.agent.md", "gitllm.md")
+                   , ("gitllm-status.agent.md", "gitllm-status.md")
+                   , ("gitllm-info.agent.md", "gitllm-info.md")
+                   , ("gitllm-history.agent.md", "gitllm-history.md")
+                   , ("gitllm-search.agent.md", "gitllm-search.md")
+                   , ("gitllm-branch.agent.md", "gitllm-branch.md")
+                   , ("gitllm-staging.agent.md", "gitllm-staging.md")
+                   , ("gitllm-merge.agent.md", "gitllm-merge.md")
+                   , ("gitllm-remote.agent.md", "gitllm-remote.md")
+                   , ("gitllm-stash.agent.md", "gitllm-stash.md")
+                   , ("gitllm-maintenance.agent.md", "gitllm-maintenance.md")
+                   , ("gitllm-config.agent.md", "gitllm-config.md")
+                   , ("gitllm-debug.agent.md", "gitllm-debug.md")
+                   , ("gitllm-patch.agent.md", "gitllm-patch.md")
+                   , ("gitllm-submodule.agent.md", "gitllm-submodule.md")
+                   ]
+
+  logInfo "Installing OpenCode agents:"
+
+  unless (optDryRun opts) $
+    createDirectoryIfMissing True destDir
+
+  mapM_ (\(srcFile, destFile) -> do
+    let srcPath  = srcDir </> srcFile
+        destPath = destDir </> destFile
+    logInfo $ "  " ++ srcPath ++ " -> " ++ destPath
+    srcExists <- doesFileExist srcPath
+    if srcExists
+      then unless (optDryRun opts) $ copyFile srcPath destPath
+      else hPutStrLn stderr $ "  WARNING: not found: " ++ srcPath
+    ) agentFiles
+
+  success "OpenCode agents installed"
+
+-- ---------------------------------------------------------------------------
 -- Uninstall
 -- ---------------------------------------------------------------------------
 
@@ -520,6 +648,14 @@ uninstallCopilotMcp opts = do
   logInfo $ "Removing gitllm from Copilot MCP config: " ++ configPath
   removeJsonKey opts configPath "servers" "gitllm"
   success "Copilot MCP entry removed"
+
+-- | Remove the gitllm entry from OpenCode config.
+uninstallOpenCodeMcp :: InstallOpts -> IO ()
+uninstallOpenCodeMcp opts = do
+  configPath <- opencodeConfigPath
+  logInfo $ "Removing gitllm from OpenCode config: " ++ configPath
+  removeJsonKey opts configPath "mcp" "gitllm"
+  success "OpenCode MCP entry removed"
 
 -- | Remove a key from a nested JSON object.
 -- Looks for @{ parentKey: { childKey: ... } }@ and deletes @childKey@.
@@ -588,6 +724,30 @@ uninstallCopilotAgent opts = do
   mapM_ (removeIfExists opts destDir) files
   success "Copilot prompt files removed"
 
+-- | Remove OpenCode agent files.
+uninstallOpenCodeAgent :: InstallOpts -> IO ()
+uninstallOpenCodeAgent opts = do
+  destDir <- opencodeAgentsDir
+  let files = [ "gitllm.md"
+              , "gitllm-status.md"
+              , "gitllm-info.md"
+              , "gitllm-history.md"
+              , "gitllm-search.md"
+              , "gitllm-branch.md"
+              , "gitllm-staging.md"
+              , "gitllm-merge.md"
+              , "gitllm-remote.md"
+              , "gitllm-stash.md"
+              , "gitllm-maintenance.md"
+              , "gitllm-config.md"
+              , "gitllm-debug.md"
+              , "gitllm-patch.md"
+              , "gitllm-submodule.md"
+              ]
+  logInfo "Removing OpenCode agent files:"
+  mapM_ (removeIfExists opts destDir) files
+  success "OpenCode agent files removed"
+
 -- | Remove a file if it exists, respecting dry-run.
 removeIfExists :: InstallOpts -> FilePath -> FilePath -> IO ()
 removeIfExists opts dir fileName = do
@@ -614,6 +774,8 @@ main = do
 
   let binaryAbsPath = actualBinDir </> binaryName
 
+  preflightStopRunningInstances opts
+
   header' "gitllm installer"
   logInfo $ "Platform:    " ++ show currentPlatform
   logInfo $ "Binary:      " ++ binaryAbsPath
@@ -637,6 +799,10 @@ main = do
         putStrLn ""
         uninstallCopilotMcp opts
 
+      unless (optBinaryOnly opts || optNoOpenCodeMcp opts) $ do
+        putStrLn ""
+        uninstallOpenCodeMcp opts
+
       unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
         putStrLn ""
         uninstallClaudeAgent opts
@@ -644,6 +810,10 @@ main = do
       unless (optBinaryOnly opts || optNoCopilotAgent opts) $ do
         putStrLn ""
         uninstallCopilotAgent opts
+
+      unless (optBinaryOnly opts || optNoOpenCodeAgent opts) $ do
+        putStrLn ""
+        uninstallOpenCodeAgent opts
 
       putStrLn ""
       success "Uninstall complete!"
@@ -660,6 +830,10 @@ main = do
         putStrLn ""
         installCopilotMcp opts binaryAbsPath
 
+      unless (optBinaryOnly opts || optNoOpenCodeMcp opts) $ do
+        putStrLn ""
+        installOpenCodeMcp opts binaryAbsPath
+
       unless (optBinaryOnly opts || optNoClaudeAgent opts) $ do
         putStrLn ""
         installClaudeAgent opts
@@ -668,11 +842,15 @@ main = do
         putStrLn ""
         installCopilotAgent opts
 
+      unless (optBinaryOnly opts || optNoOpenCodeAgent opts) $ do
+        putStrLn ""
+        installOpenCodeAgent opts
+
       putStrLn ""
       success "Installation complete!"
       logInfo ""
       logInfo "Next steps:"
-      logInfo "  1. Restart Claude Code / VS Code to pick up the new MCP server"
+      logInfo "  1. Restart Claude Code / VS Code / OpenCode to pick up the new MCP server"
       logInfo "  2. The LLM must call git_set_repo with the repository path before using git tools"
       logInfo ""
 

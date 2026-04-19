@@ -1,7 +1,7 @@
 # gitllm
 
 MCP server exposing 98 git tools for LLM agents over JSON-RPC 2.0 stdio.
-Works with Claude Code, GitHub Copilot, and any MCP client.
+Works with Claude Code, GitHub Copilot, OpenCode, and any MCP client.
 
 ## Install
 
@@ -10,7 +10,7 @@ stack build
 stack run -- gitllm-install
 ```
 
-This installs the binary and MCP configs for both Claude Code and Copilot.
+This installs the binary plus MCP and agent configs for Claude Code, GitHub Copilot, and OpenCode.
 
 ```bash
 stack run -- gitllm-install --binary-only   # binary only

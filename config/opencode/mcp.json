@@ -1,0 +1,5 @@
+{
+  "type": "local",
+  "command": ["{{GITLLM_PATH}}"],
+  "enabled": true
+}
