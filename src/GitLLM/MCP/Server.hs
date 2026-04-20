@@ -11,7 +11,6 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.IORef (newIORef)
-import Data.Text (Text)
 import qualified Data.Text as T
 import System.IO (hFlush, hSetBuffering, hSetEncoding, hIsEOF, stdin, stdout, BufferMode(..), utf8)
 
@@ -41,28 +40,36 @@ runStdio cfg state = do
   loop
   where
     loop = do
-      eof <- hIsEOF stdin
-      if eof
-        then pure ()
-        else do
-          line <- BS8.hGetLine stdin
-          processLine cfg state (BL.fromStrict line)
+      msg <- readMessage
+      case msg of
+        Nothing -> pure ()
+        Just body -> do
+          processMessage cfg state body
           loop
 
--- | Process a single JSON-RPC line.
-processLine :: ServerConfig -> ServerState -> BL.ByteString -> IO ()
-processLine cfg state line
-  | BL.null line = pure ()
+readMessage :: IO (Maybe BL.ByteString)
+readMessage = do
+  eof <- hIsEOF stdin
+  if eof
+    then pure Nothing
+    else Just . BL.fromStrict <$> BS8.hGetLine stdin
+
+-- | Process a single JSON-RPC message body.
+processMessage :: ServerConfig -> ServerState -> BL.ByteString -> IO ()
+processMessage cfg state body
+  | BL.null body = pure ()
   | otherwise = do
-      case decodeRequest line of
+      case decodeRequest body of
         Left err -> do
           let resp = makeError Nothing (-32700) "Parse error" (Just $ toJSON err)
           sendResponse resp
         Right req -> do
           resp <- handleRequest cfg state req
             `catch` \(e :: SomeException) ->
-              pure $ internalError (rpcReqId req) (T.pack $ show e)
-          sendResponse resp
+              pure . Just $ internalError (rpcReqId req) (T.pack $ show e)
+          case resp of
+            Nothing -> pure ()
+            Just r  -> sendResponse r
 
 -- | Send a JSON-RPC response to stdout.
 sendResponse :: JsonRpcResponse -> IO ()
@@ -72,11 +79,11 @@ sendResponse resp = do
   hFlush stdout
 
 -- | Handle a single JSON-RPC request.
-handleRequest :: ServerConfig -> ServerState -> JsonRpcRequest -> IO JsonRpcResponse
+handleRequest :: ServerConfig -> ServerState -> JsonRpcRequest -> IO (Maybe JsonRpcResponse)
 handleRequest cfg state req = case rpcReqMethod req of
 
   "initialize" ->
-    pure $ makeResult (rpcReqId req) $ toJSON InitializeResult
+    pure . Just $ makeResult (rpcReqId req) $ toJSON InitializeResult
       { irProtocolVersion = "2024-11-05"
       , irCapabilities    = ServerCapabilities { capTools = True }
       , irServerInfo      = ServerInfo
@@ -85,28 +92,30 @@ handleRequest cfg state req = case rpcReqMethod req of
           }
       }
 
+  "notifications/initialized" ->
+    pure Nothing
+
   "initialized" ->
-    -- Notification; no response needed, but we send acknowledgment
-    pure $ makeResult (rpcReqId req) (toJSON Null)
+    pure Nothing
 
   "tools/list" ->
-    pure $ makeResult (rpcReqId req) $ object
+    pure . Just $ makeResult (rpcReqId req) $ object
       [ "tools" .= map toJSON allToolDefinitions
       ]
 
   "tools/call" -> do
     case rpcReqParams req of
-      Nothing -> pure $ invalidParams (rpcReqId req) "Missing params for tools/call"
+      Nothing -> pure . Just $ invalidParams (rpcReqId req) "Missing params for tools/call"
       Just (Object o) -> do
         case (KM.lookup "name" o, KM.lookup "arguments" o) of
           (Just (String toolName'), args) -> do
             result <- routeRequest state toolName' args
-            pure $ makeResult (rpcReqId req) (toJSON result)
-          _ -> pure $ invalidParams (rpcReqId req) "tools/call requires 'name' field"
-      _ -> pure $ invalidParams (rpcReqId req) "params must be an object"
+            pure . Just $ makeResult (rpcReqId req) (toJSON result)
+          _ -> pure . Just $ invalidParams (rpcReqId req) "tools/call requires 'name' field"
+      _ -> pure . Just $ invalidParams (rpcReqId req) "params must be an object"
 
   "ping" ->
-    pure $ makeResult (rpcReqId req) (object [])
+    pure . Just $ makeResult (rpcReqId req) (object [])
 
   other ->
-    pure $ methodNotFound (rpcReqId req) other
+    pure . Just $ methodNotFound (rpcReqId req) other

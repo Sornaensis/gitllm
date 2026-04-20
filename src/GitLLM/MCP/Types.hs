@@ -80,12 +80,12 @@ data JsonRpcResponse = JsonRpcResponse
   } deriving (Show, Eq, Generic)
 
 instance ToJSON JsonRpcResponse where
-  toJSON r = object
+  toJSON r = object $
     [ "jsonrpc" .= ("2.0" :: Text)
     , "id"      .= rpcResId r
-    , "result"  .= rpcResResult r
-    , "error"   .= rpcResError r
     ]
+    ++ maybe [] (\v -> ["result" .= v]) (rpcResResult r)
+    ++ maybe [] (\e -> ["error"  .= e]) (rpcResError r)
 
 -- | JSON-RPC 2.0 error object.
 data JsonRpcError = JsonRpcError

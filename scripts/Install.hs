@@ -197,8 +197,8 @@ vscodePromptsDir = case currentPlatform of
 opencodeConfigPath :: IO FilePath
 opencodeConfigPath = case currentPlatform of
   Windows -> do
-    appData <- getEnv' "APPDATA"
-    pure (appData </> "opencode" </> "opencode.json")
+    home <- getHomeDirectory
+    pure (home </> ".config" </> "opencode" </> "opencode.json")
   MacOS -> do
     home <- getHomeDirectory
     pure (home </> ".config" </> "opencode" </> "opencode.json")
@@ -210,8 +210,8 @@ opencodeConfigPath = case currentPlatform of
 opencodeAgentsDir :: IO FilePath
 opencodeAgentsDir = case currentPlatform of
   Windows -> do
-    appData <- getEnv' "APPDATA"
-    pure (appData </> "opencode" </> "agents")
+    home <- getHomeDirectory
+    pure (home </> ".config" </> "opencode" </> "agents")
   MacOS -> do
     home <- getHomeDirectory
     pure (home </> ".config" </> "opencode" </> "agents")
@@ -451,14 +451,17 @@ mergeCopilotConfig _ entry = mergeCopilotConfig (object []) entry
 installOpenCodeMcp :: InstallOpts -> FilePath -> IO ()
 installOpenCodeMcp opts binaryAbsPath = do
   configPath <- opencodeConfigPath
-  let templatePath = optConfigDir opts </> "opencode" </> "mcp.json"
 
   logInfo $ "Configuring OpenCode MCP:"
   logInfo $ "  config:   " ++ configPath
-  logInfo $ "  template: " ++ templatePath
+  logInfo $ "  command:  " ++ binaryAbsPath
 
   unless (optDryRun opts) $ do
-    entry <- readMcpTemplate templatePath binaryAbsPath
+    let entry = object
+          [ "type" .= ("local" :: Text)
+          , "command" .= [binaryAbsPath]
+          , "enabled" .= True
+          ]
     createDirectoryIfMissing True (takeDirectory configPath)
 
     existing <- doesFileExist configPath

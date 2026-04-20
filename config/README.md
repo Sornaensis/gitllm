@@ -63,3 +63,7 @@ For OpenCode, the installer writes a `gitllm` entry into the global
 `agents/` directory. The OpenCode agent content currently reuses the
 OpenCode-compatible manifests in `config/copilot/` and installs them with
 OpenCode-style filenames such as `gitllm.md`.
+
+On Windows, OpenCode currently reads its active global config from
+`~/.config/opencode/opencode.json`, so the installer targets that path rather
+than `%APPDATA%`.
